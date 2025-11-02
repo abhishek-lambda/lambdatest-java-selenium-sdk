@@ -3,4 +3,6 @@ Premain-Class: com.lambdatest.selenium.agent.LambdaTestAgent
 Agent-Class: com.lambdatest.selenium.agent.LambdaTestAgent
 Can-Redefine-Classes: true
 Can-Retransform-Classes: true
+Implementation-Version: 1.0.1
+Implementation-Title: LambdaTest Selenium Java SDK
 

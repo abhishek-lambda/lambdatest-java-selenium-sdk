@@ -1,0 +1,197 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+    id 'signing'
+}
+
+repositories { 
+    mavenCentral() 
+}
+
+dependencies {
+    implementation 'org.testng:testng:7.4.0'  // Last version supporting Java 8
+    implementation 'org.seleniumhq.selenium:selenium-java:4.15.0'
+    implementation 'org.yaml:snakeyaml:2.0'
+    implementation 'net.bytebuddy:byte-buddy:1.14.10'
+    implementation 'net.bytebuddy:byte-buddy-agent:1.14.10'
+    implementation 'net.lingala.zip4j:zip4j:2.11.5'
+    implementation 'org.ow2.asm:asm:9.5'
+    implementation 'org.ow2.asm:asm-commons:9.5'
+}
+
+group = 'io.github.lambdatest'
+// Version is read from gradle.properties (SINGLE SOURCE OF TRUTH)
+description = 'A Java SDK for integrating Selenium tests with LambdaTest cloud platform'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+// Helper to get agent artifact (lazily evaluated)
+def getAgentJar() {
+    def artifact = configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts.find { 
+        it.name == 'lambdatest-java-selenium-sdk' 
+    }
+    return artifact ? artifact.file : null
+}
+
+// Task to run tests with LambdaTest agent
+task lambdaTest(type: Test) {
+    doFirst {
+        def agentJar = getAgentJar()
+        if (agentJar) {
+            jvmArgs "-javaagent:${agentJar}"
+        }
+    }
+    useTestNG() {
+        dependsOn cleanTest
+        useDefaultListeners = true
+        suites "src/test/resources/testng.xml"
+    }
+}
+
+// Task for single test
+task singleTest(type: Test) {
+    doFirst {
+        def agentJar = getAgentJar()
+        if (agentJar) {
+            jvmArgs "-javaagent:${agentJar}"
+        }
+    }
+    useTestNG() {
+        dependsOn cleanTest
+        useDefaultListeners = true
+        suites "src/test/resources/single-test.xml"
+    }
+}
+
+// Task for parallel test
+task parallelTest(type: Test) {
+    doFirst {
+        def agentJar = getAgentJar()
+        if (agentJar) {
+            jvmArgs "-javaagent:${agentJar}"
+        }
+    }
+    useTestNG() {
+        dependsOn cleanTest
+        useDefaultListeners = true
+        suites "src/test/resources/parallel-test.xml"
+    }
+}
+
+// Skip tests by default (SDK has no internal tests)
+test {
+    enabled = false
+}
+
+jar {
+    manifest {
+        attributes(
+            'Premain-Class': 'com.lambdatest.selenium.agent.LambdaTestAgent',
+            'Agent-Class': 'com.lambdatest.selenium.agent.LambdaTestAgent',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Implementation-Version': version,
+            'Implementation-Title': 'LambdaTest Selenium Java SDK'
+        )
+    }
+}
+
+// Configure Shadow JAR to create agent JAR with all dependencies
+shadowJar {
+    archiveClassifier.set('agent')
+    archiveVersion.set(version)
+    manifest {
+        attributes(
+            'Premain-Class': 'com.lambdatest.selenium.agent.LambdaTestAgent',
+            'Agent-Class': 'com.lambdatest.selenium.agent.LambdaTestAgent',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Implementation-Version': version,
+            'Implementation-Title': 'LambdaTest Selenium Java SDK'
+        )
+    }
+}
+
+// Configure Javadoc to be lenient (ignore warnings and errors)
+javadoc {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.encoding = 'UTF-8'
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.addBooleanOption('html5', true)
+    }
+}
+
+// Configure Java plugin to generate sources and javadoc JARs
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+// Configure publishing
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            
+            pom {
+                name = 'LambdaTest Selenium Java SDK'
+                description = 'A Java SDK for integrating Selenium tests with LambdaTest cloud platform'
+                url = 'https://github.com/Lambdatest/lambdatest-java-selenium-sdk'
+                
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id = 'lambdatest'
+                        name = 'LambdaTest'
+                        email = 'support@lambdatest.com'
+                    }
+                }
+                
+                scm {
+                    connection = 'scm:git:git://github.com/lambdatest/lambdatest-java-selenium-sdk.git'
+                    developerConnection = 'scm:git:ssh://github.com:lambdatest/lambdatest-java-selenium-sdk.git'
+                    url = 'https://github.com/Lambdatest/lambdatest-java-selenium-sdk'
+                }
+            }
+        }
+    }
+    
+    repositories {
+        // Maven Central (Sonatype Central Portal - NEW API)
+        maven {
+            name = "sonatype"
+            url = uri("https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/")
+            credentials {
+                username = ossrhUsername
+                password = ossrhPassword
+            }
+        }
+        maven {
+            name = "sonatypeSnapshots"
+            url = uri("https://ossrh-staging-api.central.sonatype.com/content/repositories/snapshots/")
+            credentials {
+                username = ossrhUsername
+                password = ossrhPassword
+            }
+        }
+    }
+}
+
+// Configure signing (required by Maven Central)
+signing {
+    sign publishing.publications
+}

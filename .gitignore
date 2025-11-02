@@ -1,2 +1,26 @@
+# Gradle properties (contains sensitive credentials)
 gradle.properties
+
+# Build directories
 target/
+build/
+target/
+MAVEN_CENTRAL*
+*.sh
+*.md
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*~
