@@ -19,7 +19,8 @@ import com.lambdatest.selenium.tunnel.TunnelManager;
  */
 public class LambdaTestConfig {
     
-    private static LambdaTestConfig instance;
+    private static volatile LambdaTestConfig instance;  // volatile for double-checked locking
+    private static final Object instanceLock = new Object();  // Lock for singleton initialization
     private Map<String, Object> config;
     
     // Static block to enable framework-level capability enhancement
@@ -36,11 +37,19 @@ public class LambdaTestConfig {
         loadConfig();
     }
     
+    /**
+     * Thread-safe singleton getInstance using double-checked locking.
+     * Critical for high-parallelism scenarios (e.g., parallel=50).
+     */
     public static LambdaTestConfig getInstance() {
-        if (instance == null) {
-            instance = new LambdaTestConfig();
-            // Automatically enhance any existing MutableCapabilities objects
-            enhanceExistingCapabilities();
+        if (instance == null) {  // First check (no locking)
+            synchronized (instanceLock) {  // Acquire lock
+                if (instance == null) {  // Second check (with locking)
+                    instance = new LambdaTestConfig();
+                    // Automatically enhance any existing MutableCapabilities objects
+                    enhanceExistingCapabilities();
+                }
+            }
         }
         return instance;
     }
@@ -124,6 +133,12 @@ public class LambdaTestConfig {
     }
     
     private void loadConfig() {
+        long startTime = System.currentTimeMillis();
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(getClass().getName());
+        
+        logger.fine(String.format("[Thread-%d/%s] Loading LambdaTest configuration...",
+            Thread.currentThread().getId(), Thread.currentThread().getName()));
+        
         Yaml yaml = new Yaml();
         
         // Try multiple locations for lambdatest.yml
@@ -162,6 +177,10 @@ public class LambdaTestConfig {
                         config = rawConfig;
                     }
                     
+                    long duration = System.currentTimeMillis() - startTime;
+                    logger.fine(String.format("[Thread-%d/%s] Configuration loaded in %dms",
+                        Thread.currentThread().getId(), Thread.currentThread().getName(), duration));
+                    
                     return; // Successfully loaded, exit
                 }
                 
@@ -172,6 +191,7 @@ public class LambdaTestConfig {
         
         // If we get here, no config file was found
         config = new HashMap<>();
+        logger.fine("No configuration file found, using empty config");
     }
     
     /**

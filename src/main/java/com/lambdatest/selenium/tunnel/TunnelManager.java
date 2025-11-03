@@ -135,7 +135,7 @@ public class TunnelManager {
             // Wait for tunnel to start (with timeout)
             synchronized(tunnelReadyLock) {
                 long waitStart = System.currentTimeMillis();
-                long timeout = 30000; // 30 seconds
+                long timeout = 70000; // 70 seconds (tunnel connection waits 60s + buffer)
                 
                 while (!tunnelReady[0] && tunnelError[0] == null) {
                     long elapsed = System.currentTimeMillis() - waitStart;
@@ -362,7 +362,7 @@ public class TunnelManager {
     }
     
     /**
-     * Start the tunnel process.
+     * Start the tunnel process and wait for it to be fully connected.
      */
     private void startTunnelProcess() throws TunnelException {
         try {
@@ -386,23 +386,96 @@ public class TunnelManager {
             }
             
             // Redirect output
-            processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(
-                new File(TUNNEL_DIR + "/tunnel.log")));
-            processBuilder.redirectError(ProcessBuilder.Redirect.appendTo(
-                new File(TUNNEL_DIR + "/tunnel.log")));
+            File logFile = new File(TUNNEL_DIR + "/tunnel.log");
+            processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
+            processBuilder.redirectError(ProcessBuilder.Redirect.appendTo(logFile));
+            
+            // Clear or create the log file to start fresh
+            if (logFile.exists()) {
+                // Truncate log file to avoid reading old connection messages
+                try (FileOutputStream fos = new FileOutputStream(logFile, false)) {
+                    // Just opening in overwrite mode clears it
+                }
+            }
             
             // Start the process
             tunnelProcess = processBuilder.start();
             
-            // Tunnel process started (suppressed to reduce logs)
+            LOGGER.info("Tunnel process started, waiting for connection to establish...");
             
-            // Don't wait here - just start the process and let it initialize in the background
-            // The tunnel will be ready when the first test connects to it
-            // Tunnel process starting (suppressed to reduce logs)
+            // Wait for tunnel to actually connect to LambdaTest servers
+            // The tunnel binary logs "You can start testing now" when ready
+            waitForTunnelConnection(logFile, 60000); // 60 seconds timeout
+            
+            LOGGER.info("Tunnel successfully connected and ready");
             
         } catch (Exception e) {
             throw new TunnelException("Failed to start tunnel process: " + e.getMessage(), e);
         }
+    }
+    
+    /**
+     * Wait for tunnel to establish connection by monitoring the log file.
+     * 
+     * @param logFile The tunnel log file to monitor
+     * @param timeoutMs Maximum time to wait in milliseconds
+     * @throws TunnelException if connection is not established within timeout
+     */
+    private void waitForTunnelConnection(File logFile, long timeoutMs) throws TunnelException {
+        long startTime = System.currentTimeMillis();
+        String[] readyMessages = {
+            "You can start testing now",
+            "Tunnel is now ready",
+            "connection successful",
+            "tunnel established"
+        };
+        
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            // Check if process is still alive
+            if (tunnelProcess == null || !tunnelProcess.isAlive()) {
+                String recentLog = getRecentTunnelLog();
+                throw new TunnelException("Tunnel process died unexpectedly. Recent log:\n" + 
+                    (recentLog != null ? recentLog : "No log available"));
+            }
+            
+            // Check log file for ready message
+            if (logFile.exists()) {
+                try {
+                    String logContent = new String(Files.readAllBytes(logFile.toPath()));
+                    for (String readyMsg : readyMessages) {
+                        if (logContent.toLowerCase().contains(readyMsg.toLowerCase())) {
+                            // Found ready message!
+                            return;
+                        }
+                    }
+                    
+                    // Check for error messages
+                    String lowerLog = logContent.toLowerCase();
+                    if (lowerLog.contains("error") || lowerLog.contains("failed") || 
+                        lowerLog.contains("invalid") || lowerLog.contains("unauthorized")) {
+                        throw new TunnelException("Tunnel connection failed. Check log: " + 
+                            TUNNEL_DIR + "/tunnel.log\nRecent log:\n" + 
+                            (logContent.length() > 500 ? logContent.substring(logContent.length() - 500) : logContent));
+                    }
+                } catch (IOException e) {
+                    // Log file might be locked, ignore and retry
+                }
+            }
+            
+            // Wait a bit before checking again
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new TunnelException("Interrupted while waiting for tunnel connection");
+            }
+        }
+        
+        // Timeout reached
+        String recentLog = getRecentTunnelLog();
+        throw new TunnelException("Tunnel connection timeout after " + (timeoutMs / 1000) + " seconds. " +
+            "Check log: " + TUNNEL_DIR + "/tunnel.log\n" +
+            "Recent log:\n" + (recentLog != null ? recentLog : "No log available"));
     }
     
     /**

@@ -7,8 +7,7 @@
     <groupId>com.lambdatest</groupId>
     <artifactId>lambdatest-java-selenium-sdk</artifactId>
     <!-- ⚠️ IMPORTANT: Keep this version in sync with gradle.properties -->
-    <!-- Single source of truth: gradle.properties (line 2) -->
-    <version>1.0.4</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <name>LambdaTest Selenium SDK</name>
