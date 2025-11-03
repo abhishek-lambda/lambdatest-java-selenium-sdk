@@ -1,17 +1,27 @@
 package com.lambdatest.selenium.tunnel;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.net.ServerSocket;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.json.JSONObject;
 
 import net.lingala.zip4j.ZipFile;
 import net.lingala.zip4j.exception.ZipException;
@@ -31,6 +41,11 @@ public class TunnelManager {
     private static final Logger LOGGER = Logger.getLogger(TunnelManager.class.getName());
     private static final String TUNNEL_VERSION = "v3";
     private static final String TUNNEL_DIR = System.getProperty("user.home") + "/.lambdatest-tunnel";
+    private static final String TUNNEL_INFO_API = "/api/v1.0/info";
+    private static final int MAX_TUNNEL_STARTUP_RETRY_COUNT = 20;
+    private static final int TUNNEL_INITIAL_WAIT_AND_RETRY_BACKOFF = 3000; // 3 seconds
+    private static final int HTTP_TIMEOUT = 5000; // 5 seconds
+    
     private static TunnelManager instance;
     
     private Process tunnelProcess;
@@ -40,6 +55,8 @@ public class TunnelManager {
     private String username;
     private String accessKey;
     private String tunnelName;
+    private int infoAPIPort;
+    private Integer tunnelID;
     
     /**
      * Get singleton instance of TunnelManager.
@@ -69,10 +86,13 @@ public class TunnelManager {
      * @param tunnelName Optional tunnel name
      * @throws TunnelException if tunnel fails to start
      */
-    public synchronized void startTunnel(String username, String accessKey, String tunnelName) throws TunnelException {
-        if (isRunning) {
-            LOGGER.info("Tunnel is already running");
-            return;
+    public void startTunnel(String username, String accessKey, String tunnelName) throws TunnelException {
+        // Only synchronize for the initial check to avoid holding lock during wait
+        synchronized(this) {
+            if (isRunning) {
+                LOGGER.info("Tunnel is already running");
+                return;
+            }
         }
         
         if (username == null || username.trim().isEmpty() || accessKey == null || accessKey.trim().isEmpty()) {
@@ -89,6 +109,13 @@ public class TunnelManager {
             this.tunnelName = tunnelName;
         }
         
+        // Find an available port for the Info API
+        try {
+            this.infoAPIPort = findAvailablePort();
+        } catch (IOException e) {
+            throw new TunnelException("Failed to find available port for tunnel Info API: " + e.getMessage(), e);
+        }
+        
         try {
             // Ensure tunnel binary exists first (synchronously to catch early errors)
             ensureTunnelBinary();
@@ -100,22 +127,33 @@ public class TunnelManager {
             
             Thread tunnelThread = new Thread(() -> {
                 try {
+                    LOGGER.fine("Background thread: Starting tunnel process...");
+                    
                     // Start the tunnel process
                     startTunnelProcess();
+                    
+                    LOGGER.fine("Background thread: Tunnel process started successfully");
                     
                     // Register shutdown hook to stop tunnel
                     registerShutdownHook();
                     
+                    LOGGER.fine("Background thread: Shutdown hook registered");
+                    
                     synchronized(TunnelManager.this) {
                         isRunning = true;
                     }
+                    
+                    LOGGER.info("Background thread: Notifying main thread that tunnel is ready");
                     
                     // Notify waiting threads that tunnel is ready
                     synchronized(tunnelReadyLock) {
                         tunnelReady[0] = true;
                         tunnelReadyLock.notifyAll();
                     }
+                    
+                    LOGGER.fine("Background thread: Notification sent successfully");
                 } catch (Exception e) {
+                    LOGGER.severe("Background thread: Exception occurred: " + e.getMessage());
                     synchronized(TunnelManager.this) {
                         isRunning = false;
                     }
@@ -132,32 +170,45 @@ public class TunnelManager {
             tunnelThread.setName("LambdaTest-Tunnel-Thread");
             tunnelThread.start();
             
-            // Wait for tunnel to start (with timeout)
+            LOGGER.info("Main thread: Waiting for tunnel to be ready...");
+            
+            // Wait for tunnel to start
+            // Note: Background thread has its own timeout logic (max 60 seconds)
+            // We add a buffer to allow it to complete or report errors
             synchronized(tunnelReadyLock) {
-                long waitStart = System.currentTimeMillis();
-                long timeout = 70000; // 70 seconds (tunnel connection waits 60s + buffer)
+                long timeout = 90000; // 90 seconds (allows 60s for connection + 30s buffer)
+                long startWait = System.currentTimeMillis();
                 
                 while (!tunnelReady[0] && tunnelError[0] == null) {
-                    long elapsed = System.currentTimeMillis() - waitStart;
-                    if (elapsed >= timeout) {
-                        LOGGER.warning("Tunnel start timed out after " + timeout + "ms");
-                        break;
-                    }
                     try {
-                        tunnelReadyLock.wait(timeout - elapsed);
+                        LOGGER.fine("Main thread: Entering wait state...");
+                        tunnelReadyLock.wait(timeout);
+                        long elapsed = System.currentTimeMillis() - startWait;
+                        LOGGER.fine("Main thread: Woken up after " + elapsed + "ms");
+                        break; // Exit loop after notification or timeout
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                        break;
+                        throw new TunnelException("Interrupted while waiting for tunnel to start");
                     }
                 }
                 
                 if (tunnelError[0] != null) {
+                    LOGGER.severe("Main thread: Received error notification from background thread");
                     throw new TunnelException("Tunnel failed to start", tunnelError[0]);
                 }
+                
+                if (!tunnelReady[0]) {
+                    LOGGER.severe("Main thread: Timeout - tunnel not ready after " + (timeout / 1000) + " seconds");
+                    throw new TunnelException("Tunnel start timed out after " + (timeout / 1000) + " seconds");
+                }
+                
+                LOGGER.info("Main thread: Tunnel is ready!");
             }
             
         } catch (Exception e) {
-            isRunning = false;
+            synchronized(this) {
+                isRunning = false;
+            }
             throw new TunnelException("Failed to start tunnel: " + e.getMessage(), e);
         }
     }
@@ -205,6 +256,15 @@ public class TunnelManager {
      */
     public String getTunnelName() {
         return tunnelName;
+    }
+    
+    /**
+     * Get the tunnel ID assigned by LambdaTest.
+     * 
+     * @return tunnel ID or null if tunnel is not running or ID not available
+     */
+    public Integer getTunnelID() {
+        return tunnelID;
     }
     
     /**
@@ -372,11 +432,13 @@ public class TunnelManager {
             if (isWindowsPlatform()) {
                 processBuilder.command("cmd", "/c", tunnelBinaryPath,
                     "--user", username,
-                    "--key", accessKey);
+                    "--key", accessKey,
+                    "--infoAPIPort", String.valueOf(infoAPIPort));
             } else {
                 processBuilder.command(tunnelBinaryPath,
                     "--user", username,
-                    "--key", accessKey);
+                    "--key", accessKey,
+                    "--infoAPIPort", String.valueOf(infoAPIPort));
             }
             
             // Add tunnel name (always set now - either user-provided or auto-generated)
@@ -403,11 +465,11 @@ public class TunnelManager {
             
             LOGGER.info("Tunnel process started, waiting for connection to establish...");
             
-            // Wait for tunnel to actually connect to LambdaTest servers
-            // The tunnel binary logs "You can start testing now" when ready
-            waitForTunnelConnection(logFile, 60000); // 60 seconds timeout
+            // Wait for tunnel to be ready by polling the Info API
+            waitForTunnelToStart();
             
-            LOGGER.info("Tunnel successfully connected and ready");
+            LOGGER.info("Tunnel successfully connected and ready" + 
+                (tunnelID != null ? " (Tunnel ID: " + tunnelID + ")" : ""));
             
         } catch (Exception e) {
             throw new TunnelException("Failed to start tunnel process: " + e.getMessage(), e);
@@ -415,67 +477,88 @@ public class TunnelManager {
     }
     
     /**
-     * Wait for tunnel to establish connection by monitoring the log file.
+     * Wait for tunnel to establish connection by polling the Info API.
+     * This is more reliable than parsing log files.
      * 
-     * @param logFile The tunnel log file to monitor
-     * @param timeoutMs Maximum time to wait in milliseconds
      * @throws TunnelException if connection is not established within timeout
      */
-    private void waitForTunnelConnection(File logFile, long timeoutMs) throws TunnelException {
-        long startTime = System.currentTimeMillis();
-        String[] readyMessages = {
-            "You can start testing now",
-            "Tunnel is now ready",
-            "connection successful",
-            "tunnel established"
-        };
+    private void waitForTunnelToStart() throws TunnelException {
+        RequestConfig config = RequestConfig.custom()
+                .setConnectTimeout(HTTP_TIMEOUT)
+                .setSocketTimeout(HTTP_TIMEOUT)
+                .setConnectionRequestTimeout(HTTP_TIMEOUT)
+                .build();
         
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            // Check if process is still alive
-            if (tunnelProcess == null || !tunnelProcess.isAlive()) {
-                String recentLog = getRecentTunnelLog();
-                throw new TunnelException("Tunnel process died unexpectedly. Recent log:\n" + 
-                    (recentLog != null ? recentLog : "No log available"));
-            }
+        try (CloseableHttpClient httpClient = HttpClientBuilder.create()
+                .setDefaultRequestConfig(config).build()) {
             
-            // Check log file for ready message
-            if (logFile.exists()) {
+            for (int retryCount = 0; retryCount < MAX_TUNNEL_STARTUP_RETRY_COUNT; retryCount++) {
                 try {
-                    String logContent = new String(Files.readAllBytes(logFile.toPath()));
-                    for (String readyMsg : readyMessages) {
-                        if (logContent.toLowerCase().contains(readyMsg.toLowerCase())) {
-                            // Found ready message!
-                            return;
-                        }
+                    // Wait before checking (3 seconds)
+                    Thread.sleep(TUNNEL_INITIAL_WAIT_AND_RETRY_BACKOFF);
+                    
+                    // Check if process is still alive
+                    if (tunnelProcess == null || !tunnelProcess.isAlive()) {
+                        String recentLog = getRecentTunnelLog();
+                        throw new TunnelException("Tunnel process died unexpectedly. Recent log:\n" + 
+                            (recentLog != null ? recentLog : "No log available"));
                     }
                     
-                    // Check for error messages
-                    String lowerLog = logContent.toLowerCase();
-                    if (lowerLog.contains("error") || lowerLog.contains("failed") || 
-                        lowerLog.contains("invalid") || lowerLog.contains("unauthorized")) {
-                        throw new TunnelException("Tunnel connection failed. Check log: " + 
-                            TUNNEL_DIR + "/tunnel.log\nRecent log:\n" + 
-                            (logContent.length() > 500 ? logContent.substring(logContent.length() - 500) : logContent));
+                    LOGGER.fine("Checking tunnel status (attempt " + (retryCount + 1) + "/" + 
+                        MAX_TUNNEL_STARTUP_RETRY_COUNT + ")...");
+                    
+                    String infoAPIGetEndpoint = "http://127.0.0.1:" + infoAPIPort + TUNNEL_INFO_API;
+                    HttpGet httpGet = new HttpGet(infoAPIGetEndpoint);
+                    
+                    try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
+                        if (response.getStatusLine().getStatusCode() == 200) {
+                            LOGGER.fine("Received tunnel status response");
+                            
+                            BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(response.getEntity().getContent()));
+                            StringBuilder responseBuilder = new StringBuilder();
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                responseBuilder.append(line);
+                            }
+                            
+                            JSONObject tunnelInfo = new JSONObject(responseBuilder.toString());
+                            if (tunnelInfo.getString("status").equals("SUCCESS")) {
+                                LOGGER.info("Tunnel started successfully");
+                                
+                                // Extract tunnel ID if available
+                                if (tunnelInfo.has("data") && tunnelInfo.getJSONObject("data") != null 
+                                    && tunnelInfo.getJSONObject("data").has("id")) {
+                                    tunnelID = tunnelInfo.getJSONObject("data").getInt("id");
+                                }
+                                
+                                return; // Tunnel is ready!
+                            } else {
+                                LOGGER.fine("Tunnel status: " + tunnelInfo.getString("status"));
+                            }
+                        } else {
+                            LOGGER.fine("Tunnel status response code: " + 
+                                response.getStatusLine().getStatusCode());
+                        }
                     }
-                } catch (IOException e) {
-                    // Log file might be locked, ignore and retry
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new TunnelException("Interrupted while waiting for tunnel to start");
+                } catch (Exception e) {
+                    LOGGER.fine("Tunnel not yet started. Retrying... (" + e.getMessage() + ")");
                 }
             }
             
-            // Wait a bit before checking again
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new TunnelException("Interrupted while waiting for tunnel connection");
-            }
+            // If we got here, tunnel didn't start within timeout
+            String recentLog = getRecentTunnelLog();
+            throw new TunnelException("Tunnel connection timeout after " + 
+                (MAX_TUNNEL_STARTUP_RETRY_COUNT * TUNNEL_INITIAL_WAIT_AND_RETRY_BACKOFF / 1000) + 
+                " seconds. Check log: " + TUNNEL_DIR + "/tunnel.log\n" +
+                "Recent log:\n" + (recentLog != null ? recentLog : "No log available"));
+            
+        } catch (IOException e) {
+            throw new TunnelException("Failed to check tunnel status via Info API: " + e.getMessage(), e);
         }
-        
-        // Timeout reached
-        String recentLog = getRecentTunnelLog();
-        throw new TunnelException("Tunnel connection timeout after " + (timeoutMs / 1000) + " seconds. " +
-            "Check log: " + TUNNEL_DIR + "/tunnel.log\n" +
-            "Recent log:\n" + (recentLog != null ? recentLog : "No log available"));
     }
     
     /**
@@ -495,6 +578,19 @@ public class TunnelManager {
         
         shutdownHookRegistered = true;
         // Shutdown hook registered
+    }
+    
+    /**
+     * Find an available port for the tunnel Info API.
+     * 
+     * @return An available port number
+     * @throws IOException if unable to find an available port
+     */
+    private int findAvailablePort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        }
     }
     
     /**
