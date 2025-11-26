@@ -164,6 +164,186 @@ You can also configure using environment variables:
 - `LT_ACCESS_KEY` - LambdaTest access key
 - `LT_GRID_URL` - Grid URL (default: https://hub.lambdatest.com/wd/hub)
 
+## Supported Capabilities
+
+This SDK supports **all Selenium 4 and LambdaTest advanced capabilities**. See [CAPABILITIES.md](CAPABILITIES.md) for comprehensive documentation.
+
+### Quick Reference
+
+**Selenium 4 Capabilities:**
+- `browserName`, `browserVersion` (alias: `version`), `platformName` (alias: `platform`, `OS`)
+- `driver_version` (aliases: `driverVersion`, `driver`)
+- `selenium_version` (aliases: `seleniumVersion`, `seVersion`)
+- `idleTimeout` (alias: `idle`)
+
+**Test Organization:**
+- `build`, `project`, `name`
+
+**Debugging Capabilities:**
+- `video` (default: true) - Video recording
+- `visual` (alias: `debug`) - Command-by-command screenshots
+- `network` (alias: `networkLogs`) - Network packet capture
+- `console` - JavaScript console logs
+- `verboseWebDriverLogging` - Detailed Selenium logs
+- `network.mask` - Mask network traffic for security
+
+**Environment:**
+- `resolution` - Screen resolution (e.g., "1920x1080")
+- `timezone` - Custom timezone (e.g., "UTC+05:30")
+
+**Local Testing:**
+- `tunnel` (alias: `local`) - Enable Lambda Tunnel
+- `tunnelName` (alias: `localName`) - Tunnel identifier
+
+**Advanced Testing Capabilities:**
+- `autoHeal` - Automatically recover from element locator failures ([Learn more](https://www.lambdatest.com/support/docs/auto-healing/))
+- `smartWait` - Automatically wait for elements to be ready (mutually exclusive with autoHeal) ([Learn more](https://www.lambdatest.com/support/docs/smart-wait/))
+- `smartWaitRetryDelay` - Delay between smartWait retries in milliseconds
+- `geoLocation` - Simulate user location (e.g., "US", "IN") ([Learn more](https://www.lambdatest.com/support/docs/selenium-geolocation-capabilities/))
+- `lambdaMaskCommands` - Mask sensitive data in logs (e.g., ["setValues", "setCookies", "getCookies"]) ([Learn more](https://www.lambdatest.com/support/docs/selenium-mask-your-data/))
+- `networkThrottling` - Simulate network conditions (e.g., "Regular 3G", "Good 4G") ([Learn more](https://www.lambdatest.com/support/docs/network-throttling/))
+- `customHeaders` - Add custom HTTP headers to all requests ([Learn more](https://www.lambdatest.com/support/docs/custom-headers/))
+- `customDnsMap` - Custom DNS mapping for testing ([Learn more](https://www.lambdatest.com/support/docs/custom-dns-map/))
+- `network.full.har` - Capture full HAR logs with request/response bodies ([Learn more](https://www.lambdatest.com/support/docs/har-log-viewer-with-waterfall/))
+- `lambda:userFiles` (alias: `userFiles`) - Pre-uploaded files for testing ([Learn more](https://www.lambdatest.com/support/docs/upload-files-using-lambdatest/))
+
+### Example Configuration
+
+```yaml
+# Authentication
+username: "your_username"
+accesskey: "your_accesskey"
+
+# Browser Configuration
+browserName: "Chrome"
+browserVersion: "latest"  # or "latest-1", "101.0", etc.
+platformName: "Windows 10"
+
+# Test Organization
+build: "Selenium 4 Build"
+project: "My Project"
+name: "Sample Test"
+
+# Debugging (increases test time)
+video: true
+visual: false
+network: false
+console: false
+verboseWebDriverLogging: false
+
+# Environment
+resolution: "1920x1080"
+timezone: "UTC+05:30"
+
+# Performance
+idleTimeout: 600
+selenium_version: "4.15.0"
+
+# Local Testing
+tunnel: false
+tunnelName: "my-tunnel"
+
+# Advanced Testing Capabilities
+autoHeal: false  # Note: Cannot be used with smartWait
+smartWait: false  # Note: Cannot be used with autoHeal
+smartWaitRetryDelay: 1000  # milliseconds
+geoLocation: "US"  # Country code for geolocation testing
+networkThrottling: "Regular 3G"  # Simulate network conditions
+network.full.har: true  # Capture full HAR logs
+
+# Security & Privacy
+lambdaMaskCommands:  # Mask sensitive data in logs
+  - setValues
+  - setCookies
+  - getCookies
+
+# Custom Configuration
+customHeaders:  # Add custom HTTP headers
+  X-Custom-Header: "value"
+  Authorization: "Bearer token"
+
+customDnsMap:  # Custom DNS mapping
+  example.com: "192.168.1.1"
+  test.local: "127.0.0.1"
+
+# File Upload (files must be pre-uploaded via LambdaTest API)
+lambda:userFiles:
+  - "sample.pdf"
+  - "test-image.jpg"
+```
+
+### Advanced Capabilities Examples
+
+**Auto Healing - Automatically recover from element locator failures:**
+
+```yaml
+autoHeal: true
+```
+
+This feature helps tests automatically adapt when element locators change. Note: Cannot be used together with `smartWait`.
+
+**Smart Wait - Automatically wait for elements:**
+
+```yaml
+smartWait: true
+smartWaitRetryDelay: 500  # Retry every 500ms
+```
+
+Automatically waits for elements to be ready. Note: Cannot be used together with `autoHeal`.
+
+**Geolocation Testing:**
+
+```yaml
+geoLocation: "IN"  # Simulate location from India
+timezone: "Asia/Kolkata"
+```
+
+**Network Throttling - Simulate different network conditions:**
+
+```yaml
+networkThrottling: "Regular 4G"
+# Options: "Regular 2G", "Good 2G", "Regular 3G", "Good 3G", "Regular 4G", "LTE", "DSL", "Wifi"
+```
+
+**Masking Sensitive Data in Logs:**
+
+```yaml
+lambdaMaskCommands:
+  - setValues      # Hide sendKeys input
+  - setCookies     # Hide cookies being set
+  - getCookies     # Hide cookies being retrieved
+```
+
+**Custom Headers for API Testing:**
+
+```yaml
+customHeaders:
+  X-API-Key: "your-api-key"
+  Authorization: "Bearer token"
+  Custom-Header: "custom-value"
+```
+
+**Custom DNS Mapping:**
+
+```yaml
+customDnsMap:
+  internal.example.com: "192.168.1.100"
+  staging.myapp.com: "10.0.0.50"
+```
+
+**Full HAR Logs with Request/Response Bodies:**
+
+```yaml
+network: true
+network.full.har: true
+```
+
+For detailed documentation with examples, see [CAPABILITIES.md](CAPABILITIES.md).
+
+**Reference Documentation:**
+- [Selenium 4 Capabilities](https://www.lambdatest.com/support/docs/selenium-four-capabilities/)
+- [LambdaTest Advanced Capabilities](https://www.lambdatest.com/support/docs/lambdatest-selenium-advance-capabilities/)
+
 ## Framework Integration
 
 ### TestNG

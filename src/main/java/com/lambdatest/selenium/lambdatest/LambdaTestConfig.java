@@ -144,6 +144,7 @@ public class LambdaTestConfig {
         // Try multiple locations for lambdatest.yml
         String[] locations = {
             "lambdatest.yml",  // Root directory 
+            "lambdatest.yaml"
         };
         
         for (String location : locations) {
@@ -290,6 +291,7 @@ public class LambdaTestConfig {
     
     /**
      * Get capabilities from YAML configuration.
+     * Supports all Selenium 4 and LambdaTest advanced capabilities.
      */
     public DesiredCapabilities getCapabilitiesFromYaml() {
         DesiredCapabilities capabilities = new DesiredCapabilities();
@@ -297,15 +299,25 @@ public class LambdaTestConfig {
         // LambdaTest options from YAML
         Map<String, Object> ltOptions = new HashMap<>();
         
-        // Basic browser config
+        // Basic browser config (W3C standard capabilities)
         if (config.containsKey("browserName")) {
             capabilities.setCapability("browserName", config.get("browserName"));
         }
+        
+        // browserVersion with alias support (version)
         if (config.containsKey("browserVersion")) {
             capabilities.setCapability("browserVersion", config.get("browserVersion"));
+        } else if (config.containsKey("version")) {
+            capabilities.setCapability("browserVersion", config.get("version"));
         }
+        
+        // platformName with alias support (platform, OS)
         if (config.containsKey("platformName")) {
             capabilities.setCapability("platformName", config.get("platformName"));
+        } else if (config.containsKey("platform")) {
+            capabilities.setCapability("platformName", config.get("platform"));
+        } else if (config.containsKey("OS")) {
+            capabilities.setCapability("platformName", config.get("OS"));
         }
         
         // LambdaTest credentials (required) - put only in lt:options for W3C compliance
@@ -317,21 +329,177 @@ public class LambdaTestConfig {
         } catch (Exception e) {
         }
         
-        // LambdaTest specific options
+        // Selenium 4 specific capabilities
+        
+        // driver_version with aliases (driverVersion, driver)
+        if (config.containsKey("driver_version")) {
+            ltOptions.put("driver_version", config.get("driver_version"));
+        } else if (config.containsKey("driverVersion")) {
+            ltOptions.put("driver_version", config.get("driverVersion"));
+        } else if (config.containsKey("driver")) {
+            ltOptions.put("driver_version", config.get("driver"));
+        }
+        
+        // selenium_version with aliases (seleniumVersion, seVersion)
+        if (config.containsKey("selenium_version")) {
+            ltOptions.put("selenium_version", config.get("selenium_version"));
+        } else if (config.containsKey("seleniumVersion")) {
+            ltOptions.put("selenium_version", config.get("seleniumVersion"));
+        } else if (config.containsKey("seVersion")) {
+            ltOptions.put("selenium_version", config.get("seVersion"));
+        }
+        
+        // idleTimeout with alias (idle)
+        if (config.containsKey("idleTimeout")) {
+            ltOptions.put("idleTimeout", config.get("idleTimeout"));
+        } else if (config.containsKey("idle")) {
+            ltOptions.put("idleTimeout", config.get("idle"));
+        }
+        
+        // LambdaTest organization capabilities
         if (config.containsKey("build")) ltOptions.put("build", config.get("build"));
         if (config.containsKey("project")) ltOptions.put("project", config.get("project"));
         if (config.containsKey("name")) ltOptions.put("name", config.get("name"));
-        if (config.containsKey("video")) ltOptions.put("video", config.get("video"));
-        if (config.containsKey("network")) ltOptions.put("network", config.get("network"));
-        if (config.containsKey("console")) ltOptions.put("console", config.get("console"));
-        if (config.containsKey("visual")) ltOptions.put("visual", config.get("visual"));
-        if (config.containsKey("resolution")) ltOptions.put("resolution", config.get("resolution"));
+        
+        // LambdaTest advanced capabilities - Debugging
+        
+        // video (default: true)
+        if (config.containsKey("video")) {
+            ltOptions.put("video", config.get("video"));
+        }
+        
+        // visual with alias (debug) - command by command screenshots
+        if (config.containsKey("visual")) {
+            ltOptions.put("visual", config.get("visual"));
+        } else if (config.containsKey("debug")) {
+            ltOptions.put("visual", config.get("debug"));
+        }
+        
+        // network with alias (networkLogs) - captures network packets
+        if (config.containsKey("network")) {
+            ltOptions.put("network", config.get("network"));
+        } else if (config.containsKey("networkLogs")) {
+            ltOptions.put("network", config.get("networkLogs"));
+        }
+        
+        // console - JavaScript console logs
+        if (config.containsKey("console")) {
+            ltOptions.put("console", config.get("console"));
+        }
+        
+        // network.mask - mask network traffic
+        if (config.containsKey("network.mask")) {
+            ltOptions.put("network.mask", config.get("network.mask"));
+        }
+        
+        // verboseWebDriverLogging - detailed Selenium logs
+        if (config.containsKey("verboseWebDriverLogging")) {
+            ltOptions.put("verboseWebDriverLogging", config.get("verboseWebDriverLogging"));
+        }
+        
+        // LambdaTest advanced capabilities - Environment
+        
+        // resolution - screen resolution
+        if (config.containsKey("resolution")) {
+            ltOptions.put("resolution", config.get("resolution"));
+        }
+        
+        // timezone - custom timezone (default: UTC+00:00)
+        if (config.containsKey("timezone")) {
+            ltOptions.put("timezone", config.get("timezone"));
+        }
+        
+        // LambdaTest advanced capabilities - Tunnel
+        
+        // tunnel with alias (local) - Lambda Tunnel for local testing
         if (config.containsKey("tunnel")) {
             Object tunnelValue = config.get("tunnel");
             ltOptions.put("tunnel", tunnelValue);
             
             // Note: Tunnel will be started when WebDriver is actually created
             // This prevents starting it too early before tests run
+        } else if (config.containsKey("local")) {
+            ltOptions.put("tunnel", config.get("local"));
+        }
+        
+        // tunnelName with alias (localName) - tunnel identifier
+        if (config.containsKey("tunnelName")) {
+            ltOptions.put("tunnelName", config.get("tunnelName"));
+        } else if (config.containsKey("localName")) {
+            ltOptions.put("tunnelName", config.get("localName"));
+        }
+        
+        // LambdaTest advanced capabilities - Auto Healing & Smart Wait
+        
+        // autoHeal - automatically recover from element locator failures
+        // Note: Cannot be used with smartWait (mutually exclusive)
+        if (config.containsKey("autoHeal")) {
+            ltOptions.put("autoHeal", config.get("autoHeal"));
+        }
+        
+        // smartWait - automatically wait for elements to be ready
+        // Note: Cannot be used with autoHeal (mutually exclusive)
+        if (config.containsKey("smartWait")) {
+            ltOptions.put("smartWait", config.get("smartWait"));
+        }
+        
+        // smartWaitRetryDelay - delay between smartWait retries (in milliseconds)
+        if (config.containsKey("smartWaitRetryDelay")) {
+            ltOptions.put("smartWaitRetryDelay", config.get("smartWaitRetryDelay"));
+        }
+        
+        // LambdaTest advanced capabilities - Geolocation
+        
+        // geoLocation - simulate user location for geolocation testing
+        // Format: "US" or "IN" or any country code
+        if (config.containsKey("geoLocation")) {
+            ltOptions.put("geoLocation", config.get("geoLocation"));
+        }
+        
+        // LambdaTest advanced capabilities - Security & Privacy
+        
+        // lambdaMaskCommands - mask sensitive data in test logs
+        // Format: ["setValues", "setCookies", "getCookies"]
+        if (config.containsKey("lambdaMaskCommands")) {
+            ltOptions.put("lambdaMaskCommands", config.get("lambdaMaskCommands"));
+        }
+        
+        // LambdaTest advanced capabilities - Network
+        
+        // networkThrottling - simulate network conditions
+        // Format: "Regular 2G", "Good 2G", "Regular 3G", "Good 3G", "Regular 4G", "LTE", "DSL", "Wifi"
+        if (config.containsKey("networkThrottling")) {
+            ltOptions.put("networkThrottling", config.get("networkThrottling"));
+        }
+        
+        // network.full.har - capture full HAR logs with request/response bodies
+        if (config.containsKey("network.full.har")) {
+            ltOptions.put("network.full.har", config.get("network.full.har"));
+        }
+        
+        // LambdaTest advanced capabilities - Custom Configuration
+        
+        // customHeaders - add custom HTTP headers to all requests
+        // Format: {"header1": "value1", "header2": "value2"}
+        if (config.containsKey("customHeaders")) {
+            ltOptions.put("customHeaders", config.get("customHeaders"));
+        }
+        
+        // customDnsMap - custom DNS mapping for testing
+        // Format: {"example.com": "192.168.1.1"}
+        if (config.containsKey("customDnsMap")) {
+            ltOptions.put("customDnsMap", config.get("customDnsMap"));
+        }
+        
+        // LambdaTest advanced capabilities - File Upload
+        
+        // lambda:userFiles - array of file names to upload for testing
+        // Files must be pre-uploaded via LambdaTest API
+        // Format: ["file1.txt", "file2.pdf"]
+        if (config.containsKey("lambda:userFiles")) {
+            capabilities.setCapability("lambda:userFiles", config.get("lambda:userFiles"));
+        } else if (config.containsKey("userFiles")) {
+            capabilities.setCapability("lambda:userFiles", config.get("userFiles"));
         }
         
         capabilities.setCapability("lt:options", ltOptions);
