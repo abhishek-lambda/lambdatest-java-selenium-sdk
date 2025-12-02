@@ -4,10 +4,13 @@ gradle.properties
 # Build directories
 target/
 build/
-target/
 MAVEN_CENTRAL*
 *.sh
 *.md
+
+# Gradle cache and build files (should not be committed)
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
 
 # IDE files
 .idea/
