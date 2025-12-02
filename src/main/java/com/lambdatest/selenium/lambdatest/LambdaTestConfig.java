@@ -10,6 +10,10 @@ import org.openqa.selenium.remote.DesiredCapabilities;
 import org.yaml.snakeyaml.Yaml;
 
 import com.lambdatest.selenium.tunnel.TunnelManager;
+import com.lambdatest.selenium.lambdatest.capabilities.CapabilityProcessor;
+import com.lambdatest.selenium.lambdatest.capabilities.Selenium3Capabilities;
+import com.lambdatest.selenium.lambdatest.capabilities.Selenium4Capabilities;
+import com.lambdatest.selenium.lambdatest.capabilities.BrowserOptionsCapabilities;
 
 /**
  * YAML configuration reader for LambdaTest Selenium SDK.
@@ -314,28 +318,69 @@ public class LambdaTestConfig {
      */
     public DesiredCapabilities getCapabilitiesFromYaml() {
         DesiredCapabilities capabilities = new DesiredCapabilities();
-        
-        // LambdaTest options from YAML
         Map<String, Object> ltOptions = new HashMap<>();
+        CapabilityProcessor processor = new CapabilityProcessor(config, capabilities, ltOptions);
         
-        // Basic browser config (W3C standard capabilities)
-        // Supported browsers: Chrome, Firefox, Safari, MS Edge, Opera, IE (Internet Explorer)
-        // browserName is case-sensitive and mandatory
+        // ============================================================
+        // 1. W3C Standard Browser Capabilities (Selenium 3 & 4)
+        // ============================================================
+        processW3CBrowserCapabilities(capabilities);
+        
+        // ============================================================
+        // 2. Browser-Specific Options (Chrome, Firefox, Edge, etc.)
+        // ============================================================
+        BrowserOptionsCapabilities.processBrowserOptions(config, capabilities);
+        
+        // ============================================================
+        // 3. LambdaTest Credentials (Required)
+        // ============================================================
+        processCredentials(ltOptions);
+        
+        // ============================================================
+        // 4. Selenium 3 Capabilities (for backwards compatibility)
+        // ============================================================
+        processor.process(Selenium3Capabilities.getDefinitions());
+        
+        // Handle special case: version -> browserVersion mapping
+        processVersionCapability(capabilities);
+        
+        // ============================================================
+        // 5. Selenium 4 / W3C Capabilities (LambdaTest advanced)
+        // ============================================================
+        processor.process(Selenium4Capabilities.getDefinitions());
+        
+        // ============================================================
+        // 6. Special Cases (require custom handling)
+        // ============================================================
+        processSpecialCases(capabilities, ltOptions);
+        
+        // ============================================================
+        // 7. Finalize: Set lt:options on capabilities
+        // ============================================================
+        capabilities.setCapability("lt:options", ltOptions);
+        
+        return capabilities;
+    }
+    
+    /**
+     * Process W3C standard browser capabilities (browserName, browserVersion, platformName).
+     */
+    private void processW3CBrowserCapabilities(DesiredCapabilities capabilities) {
+        // browserName (case-sensitive, mandatory)
         if (config.containsKey("browserName")) {
             capabilities.setCapability("browserName", config.get("browserName"));
         } else if (config.containsKey("browser")) {
-            // Alias support for browserName
             capabilities.setCapability("browserName", config.get("browser"));
         }
         
-        // browserVersion with alias support (version) - Selenium 3 & 4 compatible
+        // browserVersion
         if (config.containsKey("browserVersion")) {
             capabilities.setCapability("browserVersion", config.get("browserVersion"));
         } else if (config.containsKey("version")) {
             capabilities.setCapability("browserVersion", config.get("version"));
         }
         
-        // platformName with alias support (platform, OS) - Selenium 3 & 4 compatible
+        // platformName
         if (config.containsKey("platformName")) {
             capabilities.setCapability("platformName", config.get("platformName"));
         } else if (config.containsKey("platform")) {
@@ -343,407 +388,54 @@ public class LambdaTestConfig {
         } else if (config.containsKey("OS")) {
             capabilities.setCapability("platformName", config.get("OS"));
         }
-        
-        // Browser-specific options - Selenium 3 & 4 compatible
-        // Chrome options (chromeOptions, goog:chromeOptions for Selenium 4)
-        if (config.containsKey("chromeOptions")) {
-            Object chromeOptions = config.get("chromeOptions");
-            capabilities.setCapability("chromeOptions", chromeOptions); // Selenium 3
-            capabilities.setCapability("goog:chromeOptions", chromeOptions); // Selenium 4 W3C
-        } else if (config.containsKey("goog:chromeOptions")) {
-            Object chromeOptions = config.get("goog:chromeOptions");
-            capabilities.setCapability("chromeOptions", chromeOptions); // Selenium 3 compatibility
-            capabilities.setCapability("goog:chromeOptions", chromeOptions); // Selenium 4 W3C
-        }
-        
-        // Firefox options (firefoxOptions, moz:firefoxOptions for Selenium 4)
-        if (config.containsKey("firefoxOptions")) {
-            Object firefoxOptions = config.get("firefoxOptions");
-            capabilities.setCapability("firefoxOptions", firefoxOptions); // Selenium 3
-            capabilities.setCapability("moz:firefoxOptions", firefoxOptions); // Selenium 4 W3C
-        } else if (config.containsKey("moz:firefoxOptions")) {
-            Object firefoxOptions = config.get("moz:firefoxOptions");
-            capabilities.setCapability("firefoxOptions", firefoxOptions); // Selenium 3 compatibility
-            capabilities.setCapability("moz:firefoxOptions", firefoxOptions); // Selenium 4 W3C
-        }
-        
-        // Edge options (edgeOptions, ms:edgeOptions for Selenium 4)
-        if (config.containsKey("edgeOptions")) {
-            Object edgeOptions = config.get("edgeOptions");
-            capabilities.setCapability("edgeOptions", edgeOptions); // Selenium 3
-            capabilities.setCapability("ms:edgeOptions", edgeOptions); // Selenium 4 W3C
-        } else if (config.containsKey("ms:edgeOptions")) {
-            Object edgeOptions = config.get("ms:edgeOptions");
-            capabilities.setCapability("edgeOptions", edgeOptions); // Selenium 3 compatibility
-            capabilities.setCapability("ms:edgeOptions", edgeOptions); // Selenium 4 W3C
-        }
-        
-        // Safari options (safariOptions, safari:options for Selenium 4)
-        if (config.containsKey("safariOptions")) {
-            Object safariOptions = config.get("safariOptions");
-            capabilities.setCapability("safariOptions", safariOptions); // Selenium 3
-            capabilities.setCapability("safari:options", safariOptions); // Selenium 4 W3C
-        } else if (config.containsKey("safari:options")) {
-            Object safariOptions = config.get("safari:options");
-            capabilities.setCapability("safariOptions", safariOptions); // Selenium 3 compatibility
-            capabilities.setCapability("safari:options", safariOptions); // Selenium 4 W3C
-        }
-        
-        // Opera options (operaOptions) - Selenium 3 & 4 compatible
-        if (config.containsKey("operaOptions")) {
-            Object operaOptions = config.get("operaOptions");
-            capabilities.setCapability("operaOptions", operaOptions);
-        }
-        
-        // Internet Explorer options (se:ieOptions for Selenium 4, IEOptions for Selenium 3)
-        if (config.containsKey("ieOptions")) {
-            Object ieOptions = config.get("ieOptions");
-            capabilities.setCapability("se:ieOptions", ieOptions); // Selenium 4 W3C
-            capabilities.setCapability("IEOptions", ieOptions); // Selenium 3 compatibility
-        } else if (config.containsKey("se:ieOptions")) {
-            Object ieOptions = config.get("se:ieOptions");
-            capabilities.setCapability("se:ieOptions", ieOptions); // Selenium 4 W3C
-            capabilities.setCapability("IEOptions", ieOptions); // Selenium 3 compatibility
-        }
-        
-        // LambdaTest credentials (required) - put only in lt:options for W3C compliance
+    }
+    
+    /**
+     * Process LambdaTest credentials.
+     */
+    private void processCredentials(Map<String, Object> ltOptions) {
         try {
             String username = getUsername();
             String accessKey = getAccessKey();
             ltOptions.put("user", username);
             ltOptions.put("accessKey", accessKey);
         } catch (Exception e) {
+            // Credentials will be required when creating WebDriver
+            throw new RuntimeException("LambdaTest credentials not found. Please set LT_USERNAME and LT_ACCESS_KEY environment variables or add 'username' and 'accesskey' to lambdatest.yml");
         }
-        
-        // Selenium 4 specific capabilities
-        
-        // driver_version with aliases (driverVersion, driver)
-        if (config.containsKey("driver_version")) {
-            ltOptions.put("driver_version", config.get("driver_version"));
-        } else if (config.containsKey("driverVersion")) {
-            ltOptions.put("driver_version", config.get("driverVersion"));
-        } else if (config.containsKey("driver")) {
-            ltOptions.put("driver_version", config.get("driver"));
-        }
-        
-        // selenium_version with aliases (seleniumVersion, seVersion)
-        if (config.containsKey("selenium_version")) {
-            ltOptions.put("selenium_version", config.get("selenium_version"));
-        } else if (config.containsKey("seleniumVersion")) {
-            ltOptions.put("selenium_version", config.get("seleniumVersion"));
-        } else if (config.containsKey("seVersion")) {
-            ltOptions.put("selenium_version", config.get("seVersion"));
-        }
-        
-        // idleTimeout with alias (idle)
-        if (config.containsKey("idleTimeout")) {
-            ltOptions.put("idleTimeout", config.get("idleTimeout"));
-        } else if (config.containsKey("idle")) {
-            ltOptions.put("idleTimeout", config.get("idle"));
-        }
-        
-        // LambdaTest organization capabilities
-        // build with aliases (buildName, job, jobName) - Selenium 3 compatibility
-        if (config.containsKey("build")) {
-            Object buildValue = config.get("build");
-            ltOptions.put("build", buildValue);
-            capabilities.setCapability("build", buildValue); // Selenium 3 compatibility
-        } else if (config.containsKey("buildName")) {
-            Object buildValue = config.get("buildName");
-            ltOptions.put("build", buildValue);
-            capabilities.setCapability("build", buildValue);
-        } else if (config.containsKey("job")) {
-            Object buildValue = config.get("job");
-            ltOptions.put("build", buildValue);
-            capabilities.setCapability("build", buildValue);
-        } else if (config.containsKey("jobName")) {
-            Object buildValue = config.get("jobName");
-            ltOptions.put("build", buildValue);
-            capabilities.setCapability("build", buildValue);
-        }
-        
-        // projectName with aliases (projectName, project) - Selenium 3 compatibility
-        if (config.containsKey("projectName")) {
-            Object projectValue = config.get("projectName");
-            ltOptions.put("project", projectValue);
-            capabilities.setCapability("projectName", projectValue); // Selenium 3 compatibility
-        } else if (config.containsKey("project")) {
-            Object projectValue = config.get("project");
-            ltOptions.put("project", projectValue);
-            capabilities.setCapability("projectName", projectValue);
-        }
-        
-        // name with aliases (testname, sessionname, test) - Selenium 3 compatibility
-        if (config.containsKey("name")) {
-            Object nameValue = config.get("name");
-            ltOptions.put("name", nameValue);
-            capabilities.setCapability("name", nameValue); // Selenium 3 compatibility
-        } else if (config.containsKey("testname")) {
-            Object nameValue = config.get("testname");
-            ltOptions.put("name", nameValue);
-            capabilities.setCapability("name", nameValue);
-        } else if (config.containsKey("sessionname")) {
-            Object nameValue = config.get("sessionname");
-            ltOptions.put("name", nameValue);
-            capabilities.setCapability("name", nameValue);
-        } else if (config.containsKey("test")) {
-            Object nameValue = config.get("test");
-            ltOptions.put("name", nameValue);
-            capabilities.setCapability("name", nameValue);
-        }
-        
-        // tags - Selenium 3 compatibility
-        if (config.containsKey("tags")) {
-            Object tagsValue = config.get("tags");
-            ltOptions.put("tags", tagsValue);
-            capabilities.setCapability("tags", tagsValue); // Selenium 3 compatibility
-        }
-        
-        // buildTags - Selenium 3 compatibility
-        if (config.containsKey("buildTags")) {
-            Object buildTagsValue = config.get("buildTags");
-            ltOptions.put("buildTags", buildTagsValue);
-            capabilities.setCapability("buildTags", buildTagsValue); // Selenium 3 compatibility
-        }
-        
-        // version - Selenium 3 compatibility (also set directly on capabilities)
-        if (config.containsKey("version")) {
+    }
+    
+    /**
+     * Handle version capability special case (Selenium 3 compatibility).
+     * version should be set on DesiredCapabilities AND as browserVersion for W3C.
+     */
+    private void processVersionCapability(DesiredCapabilities capabilities) {
+        if (config.containsKey("version") && !config.containsKey("browserVersion")) {
             Object versionValue = config.get("version");
-            capabilities.setCapability("version", versionValue); // Selenium 3 compatibility
-            // Also set as browserVersion for W3C compliance
-            if (!config.containsKey("browserVersion")) {
-                capabilities.setCapability("browserVersion", versionValue);
-            }
+            capabilities.setCapability("version", versionValue); // Selenium 3
+            capabilities.setCapability("browserVersion", versionValue); // W3C
         }
-        
-        // driver_version - Selenium 3 compatibility (also set directly on capabilities)
-        if (config.containsKey("driver_version")) {
-            Object driverVersionValue = config.get("driver_version");
-            ltOptions.put("driver_version", driverVersionValue);
-            capabilities.setCapability("driver_version", driverVersionValue); // Selenium 3 compatibility
-        } else if (config.containsKey("driverVersion")) {
-            Object driverVersionValue = config.get("driverVersion");
-            ltOptions.put("driver_version", driverVersionValue);
-            capabilities.setCapability("driver_version", driverVersionValue);
-        } else if (config.containsKey("driver")) {
-            Object driverVersionValue = config.get("driver");
-            ltOptions.put("driver_version", driverVersionValue);
-            capabilities.setCapability("driver_version", driverVersionValue);
-        }
-        
-        // resolution with alias (viewport) - Selenium 3 compatibility
-        if (config.containsKey("resolution")) {
-            Object resolutionValue = config.get("resolution");
-            ltOptions.put("resolution", resolutionValue);
-            capabilities.setCapability("resolution", resolutionValue); // Selenium 3 compatibility
-        } else if (config.containsKey("viewport")) {
-            Object resolutionValue = config.get("viewport");
-            ltOptions.put("resolution", resolutionValue);
-            capabilities.setCapability("resolution", resolutionValue);
-        }
-        
-        // lambda:loadExtension - Selenium 3 compatibility
-        if (config.containsKey("lambda:loadExtension")) {
-            Object loadExtensionValue = config.get("lambda:loadExtension");
-            capabilities.setCapability("lambda:loadExtension", loadExtensionValue);
-        } else if (config.containsKey("loadExtension")) {
-            Object loadExtensionValue = config.get("loadExtension");
-            capabilities.setCapability("lambda:loadExtension", loadExtensionValue);
-        }
-        
-        // commandLog with alias (commandLogs) - Selenium 3 compatibility
-        if (config.containsKey("commandLog")) {
-            Object commandLogValue = config.get("commandLog");
-            capabilities.setCapability("commandLog", commandLogValue);
-        } else if (config.containsKey("commandLogs")) {
-            Object commandLogValue = config.get("commandLogs");
-            capabilities.setCapability("commandLog", commandLogValue);
-        }
-        
-        // systemLog with alias (seleniumLogs) - Selenium 3 compatibility
-        if (config.containsKey("systemLog")) {
-            Object systemLogValue = config.get("systemLog");
-            capabilities.setCapability("systemLog", systemLogValue);
-        } else if (config.containsKey("seleniumLogs")) {
-            Object systemLogValue = config.get("seleniumLogs");
-            capabilities.setCapability("systemLog", systemLogValue);
-        }
-        
-        // network.http2 - Selenium 3 compatibility
-        if (config.containsKey("network.http2")) {
-            Object networkHttp2Value = config.get("network.http2");
-            capabilities.setCapability("network.http2", networkHttp2Value);
-        }
-        
-        // DisableXFHeaders - Selenium 3 compatibility
-        if (config.containsKey("DisableXFHeaders")) {
-            Object disableXFHeadersValue = config.get("DisableXFHeaders");
-            capabilities.setCapability("DisableXFHeaders", disableXFHeadersValue);
-        }
-        
-        // network.debug - Selenium 3 compatibility
-        if (config.containsKey("network.debug")) {
-            Object networkDebugValue = config.get("network.debug");
-            capabilities.setCapability("network.debug", networkDebugValue);
-        }
-        
-        // ignoreFfOptionsArgs - Selenium 3 compatibility
-        if (config.containsKey("ignoreFfOptionsArgs")) {
-            Object ignoreFfOptionsArgsValue = config.get("ignoreFfOptionsArgs");
-            capabilities.setCapability("ignoreFfOptionsArgs", ignoreFfOptionsArgsValue);
-        }
-        
-        // updateBuildStatusOnSuccess - Selenium 3 compatibility
-        if (config.containsKey("updateBuildStatusOnSuccess")) {
-            Object updateBuildStatusOnSuccessValue = config.get("updateBuildStatusOnSuccess");
-            capabilities.setCapability("updateBuildStatusOnSuccess", updateBuildStatusOnSuccessValue);
-        }
-        
-        // LambdaTest advanced capabilities - Debugging
-        
-        // video (default: true)
-        if (config.containsKey("video")) {
-            ltOptions.put("video", config.get("video"));
-        }
-        
-        // visual with alias (debug) - command by command screenshots
-        if (config.containsKey("visual")) {
-            ltOptions.put("visual", config.get("visual"));
-        } else if (config.containsKey("debug")) {
-            ltOptions.put("visual", config.get("debug"));
-        }
-        
-        // network with alias (networkLogs) - captures network packets
-        if (config.containsKey("network")) {
-            ltOptions.put("network", config.get("network"));
-        } else if (config.containsKey("networkLogs")) {
-            ltOptions.put("network", config.get("networkLogs"));
-        }
-        
-        // console - JavaScript console logs
-        if (config.containsKey("console")) {
-            ltOptions.put("console", config.get("console"));
-        }
-        
-        // network.mask - mask network traffic
-        if (config.containsKey("network.mask")) {
-            ltOptions.put("network.mask", config.get("network.mask"));
-        }
-        
-        // verboseWebDriverLogging - detailed Selenium logs
-        if (config.containsKey("verboseWebDriverLogging")) {
-            ltOptions.put("verboseWebDriverLogging", config.get("verboseWebDriverLogging"));
-        }
-        
-        // LambdaTest advanced capabilities - Environment
-        
-        // resolution - screen resolution
-        if (config.containsKey("resolution")) {
-            ltOptions.put("resolution", config.get("resolution"));
-        }
-        
-        // timezone - custom timezone (default: UTC+00:00)
-        if (config.containsKey("timezone")) {
-            ltOptions.put("timezone", config.get("timezone"));
-        }
-        
-        // LambdaTest advanced capabilities - Tunnel
-        
-        // tunnel with alias (local) - Lambda Tunnel for local testing
-        if (config.containsKey("tunnel")) {
-            Object tunnelValue = config.get("tunnel");
-            ltOptions.put("tunnel", tunnelValue);
-            
-            // Note: Tunnel will be started when WebDriver is actually created
-            // This prevents starting it too early before tests run
-        } else if (config.containsKey("local")) {
-            ltOptions.put("tunnel", config.get("local"));
-        }
-        
-        // tunnelName with alias (localName) - tunnel identifier
-        if (config.containsKey("tunnelName")) {
-            ltOptions.put("tunnelName", config.get("tunnelName"));
-        } else if (config.containsKey("localName")) {
-            ltOptions.put("tunnelName", config.get("localName"));
-        }
-        
-        // LambdaTest advanced capabilities - Auto Healing & Smart Wait
-        
-        // autoHeal - automatically recover from element locator failures
-        // Note: Cannot be used with smartWait (mutually exclusive)
-        if (config.containsKey("autoHeal")) {
-            ltOptions.put("autoHeal", config.get("autoHeal"));
-        }
-        
-        // smartWait - automatically wait for elements to be ready
-        // Note: Cannot be used with autoHeal (mutually exclusive)
-        if (config.containsKey("smartWait")) {
-            ltOptions.put("smartWait", config.get("smartWait"));
-        }
-        
-        // smartWaitRetryDelay - delay between smartWait retries (in milliseconds)
-        if (config.containsKey("smartWaitRetryDelay")) {
-            ltOptions.put("smartWaitRetryDelay", config.get("smartWaitRetryDelay"));
-        }
-        
-        // LambdaTest advanced capabilities - Geolocation
-        
-        // geoLocation - simulate user location for geolocation testing
-        // Format: "US" or "IN" or any country code
-        if (config.containsKey("geoLocation")) {
-            ltOptions.put("geoLocation", config.get("geoLocation"));
-        }
-        
-        // LambdaTest advanced capabilities - Security & Privacy
-        
-        // lambdaMaskCommands - mask sensitive data in test logs
-        // Format: ["setValues", "setCookies", "getCookies"]
-        if (config.containsKey("lambdaMaskCommands")) {
-            ltOptions.put("lambdaMaskCommands", config.get("lambdaMaskCommands"));
-        }
-        
-        // LambdaTest advanced capabilities - Network
-        
-        // networkThrottling - simulate network conditions
-        // Format: "Regular 2G", "Good 2G", "Regular 3G", "Good 3G", "Regular 4G", "LTE", "DSL", "Wifi"
-        if (config.containsKey("networkThrottling")) {
-            ltOptions.put("networkThrottling", config.get("networkThrottling"));
-        }
-        
-        // network.full.har - capture full HAR logs with request/response bodies
-        if (config.containsKey("network.full.har")) {
-            ltOptions.put("network.full.har", config.get("network.full.har"));
-        }
-        
-        // LambdaTest advanced capabilities - Custom Configuration
-        
-        // customHeaders - add custom HTTP headers to all requests
-        // Format: {"header1": "value1", "header2": "value2"}
-        if (config.containsKey("customHeaders")) {
-            ltOptions.put("customHeaders", config.get("customHeaders"));
-        }
-        
-        // customDnsMap - custom DNS mapping for testing
-        // Format: {"example.com": "192.168.1.1"}
-        if (config.containsKey("customDnsMap")) {
-            ltOptions.put("customDnsMap", config.get("customDnsMap"));
-        }
-        
-        // LambdaTest advanced capabilities - File Upload
-        
-        // lambda:userFiles - array of file names to upload for testing
-        // Files must be pre-uploaded via LambdaTest API
-        // Format: ["file1.txt", "file2.pdf"]
+    }
+    
+    /**
+     * Process special cases that require custom logic.
+     */
+    private void processSpecialCases(DesiredCapabilities capabilities, Map<String, Object> ltOptions) {
+        // lambda:userFiles - set directly on capabilities (not in lt:options)
         if (config.containsKey("lambda:userFiles")) {
             capabilities.setCapability("lambda:userFiles", config.get("lambda:userFiles"));
         } else if (config.containsKey("userFiles")) {
             capabilities.setCapability("lambda:userFiles", config.get("userFiles"));
         }
         
-        capabilities.setCapability("lt:options", ltOptions);
-        
-        
-        return capabilities;
+        // project -> projectName mapping for Selenium 3, and project -> lt:options for Selenium 4
+        if (config.containsKey("project")) {
+            Object projectValue = config.get("project");
+            ltOptions.put("project", projectValue); // Selenium 4
+            if (!config.containsKey("projectName")) {
+                capabilities.setCapability("projectName", projectValue); // Selenium 3
+            }
+        }
     }
     
     /**
