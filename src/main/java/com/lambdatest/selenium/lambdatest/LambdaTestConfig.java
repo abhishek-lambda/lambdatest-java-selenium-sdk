@@ -293,6 +293,22 @@ public class LambdaTestConfig {
      * Get capabilities from YAML configuration.
      * Supports all Selenium 3, Selenium 4, and LambdaTest advanced capabilities.
      * 
+     * Supported Browsers (Selenium 3 & 4):
+     * - Chrome
+     * - Firefox
+     * - Safari
+     * - MS Edge (Microsoft Edge)
+     * - Opera
+     * - IE (Internet Explorer)
+     * 
+     * Browser-specific options are supported for both Selenium 3 and 4:
+     * - Chrome: chromeOptions / goog:chromeOptions
+     * - Firefox: firefoxOptions / moz:firefoxOptions
+     * - Edge: edgeOptions / ms:edgeOptions
+     * - Safari: safariOptions / safari:options
+     * - Opera: operaOptions
+     * - IE: ieOptions / se:ieOptions
+     * 
      * Selenium 3 capabilities are set directly on DesiredCapabilities for backwards compatibility.
      * Selenium 4 capabilities use the W3C standard format with lt:options.
      */
@@ -303,24 +319,91 @@ public class LambdaTestConfig {
         Map<String, Object> ltOptions = new HashMap<>();
         
         // Basic browser config (W3C standard capabilities)
+        // Supported browsers: Chrome, Firefox, Safari, MS Edge, Opera, IE (Internet Explorer)
+        // browserName is case-sensitive and mandatory
         if (config.containsKey("browserName")) {
             capabilities.setCapability("browserName", config.get("browserName"));
+        } else if (config.containsKey("browser")) {
+            // Alias support for browserName
+            capabilities.setCapability("browserName", config.get("browser"));
         }
         
-        // browserVersion with alias support (version)
+        // browserVersion with alias support (version) - Selenium 3 & 4 compatible
         if (config.containsKey("browserVersion")) {
             capabilities.setCapability("browserVersion", config.get("browserVersion"));
         } else if (config.containsKey("version")) {
             capabilities.setCapability("browserVersion", config.get("version"));
         }
         
-        // platformName with alias support (platform, OS)
+        // platformName with alias support (platform, OS) - Selenium 3 & 4 compatible
         if (config.containsKey("platformName")) {
             capabilities.setCapability("platformName", config.get("platformName"));
         } else if (config.containsKey("platform")) {
             capabilities.setCapability("platformName", config.get("platform"));
         } else if (config.containsKey("OS")) {
             capabilities.setCapability("platformName", config.get("OS"));
+        }
+        
+        // Browser-specific options - Selenium 3 & 4 compatible
+        // Chrome options (chromeOptions, goog:chromeOptions for Selenium 4)
+        if (config.containsKey("chromeOptions")) {
+            Object chromeOptions = config.get("chromeOptions");
+            capabilities.setCapability("chromeOptions", chromeOptions); // Selenium 3
+            capabilities.setCapability("goog:chromeOptions", chromeOptions); // Selenium 4 W3C
+        } else if (config.containsKey("goog:chromeOptions")) {
+            Object chromeOptions = config.get("goog:chromeOptions");
+            capabilities.setCapability("chromeOptions", chromeOptions); // Selenium 3 compatibility
+            capabilities.setCapability("goog:chromeOptions", chromeOptions); // Selenium 4 W3C
+        }
+        
+        // Firefox options (firefoxOptions, moz:firefoxOptions for Selenium 4)
+        if (config.containsKey("firefoxOptions")) {
+            Object firefoxOptions = config.get("firefoxOptions");
+            capabilities.setCapability("firefoxOptions", firefoxOptions); // Selenium 3
+            capabilities.setCapability("moz:firefoxOptions", firefoxOptions); // Selenium 4 W3C
+        } else if (config.containsKey("moz:firefoxOptions")) {
+            Object firefoxOptions = config.get("moz:firefoxOptions");
+            capabilities.setCapability("firefoxOptions", firefoxOptions); // Selenium 3 compatibility
+            capabilities.setCapability("moz:firefoxOptions", firefoxOptions); // Selenium 4 W3C
+        }
+        
+        // Edge options (edgeOptions, ms:edgeOptions for Selenium 4)
+        if (config.containsKey("edgeOptions")) {
+            Object edgeOptions = config.get("edgeOptions");
+            capabilities.setCapability("edgeOptions", edgeOptions); // Selenium 3
+            capabilities.setCapability("ms:edgeOptions", edgeOptions); // Selenium 4 W3C
+        } else if (config.containsKey("ms:edgeOptions")) {
+            Object edgeOptions = config.get("ms:edgeOptions");
+            capabilities.setCapability("edgeOptions", edgeOptions); // Selenium 3 compatibility
+            capabilities.setCapability("ms:edgeOptions", edgeOptions); // Selenium 4 W3C
+        }
+        
+        // Safari options (safariOptions, safari:options for Selenium 4)
+        if (config.containsKey("safariOptions")) {
+            Object safariOptions = config.get("safariOptions");
+            capabilities.setCapability("safariOptions", safariOptions); // Selenium 3
+            capabilities.setCapability("safari:options", safariOptions); // Selenium 4 W3C
+        } else if (config.containsKey("safari:options")) {
+            Object safariOptions = config.get("safari:options");
+            capabilities.setCapability("safariOptions", safariOptions); // Selenium 3 compatibility
+            capabilities.setCapability("safari:options", safariOptions); // Selenium 4 W3C
+        }
+        
+        // Opera options (operaOptions) - Selenium 3 & 4 compatible
+        if (config.containsKey("operaOptions")) {
+            Object operaOptions = config.get("operaOptions");
+            capabilities.setCapability("operaOptions", operaOptions);
+        }
+        
+        // Internet Explorer options (se:ieOptions for Selenium 4, IEOptions for Selenium 3)
+        if (config.containsKey("ieOptions")) {
+            Object ieOptions = config.get("ieOptions");
+            capabilities.setCapability("se:ieOptions", ieOptions); // Selenium 4 W3C
+            capabilities.setCapability("IEOptions", ieOptions); // Selenium 3 compatibility
+        } else if (config.containsKey("se:ieOptions")) {
+            Object ieOptions = config.get("se:ieOptions");
+            capabilities.setCapability("se:ieOptions", ieOptions); // Selenium 4 W3C
+            capabilities.setCapability("IEOptions", ieOptions); // Selenium 3 compatibility
         }
         
         // LambdaTest credentials (required) - put only in lt:options for W3C compliance

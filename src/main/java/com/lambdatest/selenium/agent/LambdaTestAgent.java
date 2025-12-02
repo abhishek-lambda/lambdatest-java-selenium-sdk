@@ -506,7 +506,11 @@ public class LambdaTestAgent {
         // This handles capability enhancement and driver registration
         inst.addTransformer(new RemoteWebDriverBytecodeTransformer(), true);
         
-        LOGGER.info("WebDriver interceptors installed (including RemoteWebDriver.builder())");
+        // Install transformer for local driver interception (ChromeDriver, FirefoxDriver, etc.)
+        // This redirects local driver creation to LambdaTest RemoteWebDriver
+        inst.addTransformer(new LocalDriverBytecodeTransformer(), true);
+        
+        LOGGER.info("WebDriver interceptors installed (RemoteWebDriver + local drivers: Chrome, Firefox, Edge, Safari, Opera, IE)");
     }
     
     
