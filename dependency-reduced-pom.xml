@@ -4,7 +4,7 @@
   <groupId>com.lambdatest</groupId>
   <artifactId>lambdatest-java-selenium-sdk</artifactId>
   <name>LambdaTest Selenium SDK</name>
-  <version>1.0.1</version>
+  <version>1.0.2</version>
   <description>A Java SDK for integrating Selenium tests with LambdaTest cloud platform</description>
   <url>https://www.lambdatest.com</url>
   <licenses>

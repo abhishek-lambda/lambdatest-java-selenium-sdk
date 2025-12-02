@@ -25,4 +25,3 @@ MAVEN_CENTRAL*
 *.bak
 *~
 gradle.properties
-.gradle/
