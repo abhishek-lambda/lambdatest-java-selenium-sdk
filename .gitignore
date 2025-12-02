@@ -8,7 +8,7 @@ MAVEN_CENTRAL*
 *.sh
 *.md
 
-# Gradle cache and build files (should not be committed)
+# Gradle cache and build files 
 .gradle/
 gradle/wrapper/gradle-wrapper.jar
 
