@@ -1,6 +1,5 @@
 package com.lambdatest.selenium.lambdatest.capabilities;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import org.openqa.selenium.remote.DesiredCapabilities;
@@ -10,18 +9,6 @@ import org.openqa.selenium.remote.DesiredCapabilities;
  * These need special handling because they have different keys for Selenium 3 and 4.
  */
 public class BrowserOptionsCapabilities {
-
-    /**
-     * Browser option mapping: Selenium 3 key -> Selenium 4 W3C key
-     */
-    private static final Map<String, String> BROWSER_OPTION_MAPPINGS = new HashMap<>();
-    static {
-        BROWSER_OPTION_MAPPINGS.put("chromeOptions", "goog:chromeOptions");
-        BROWSER_OPTION_MAPPINGS.put("firefoxOptions", "moz:firefoxOptions");
-        BROWSER_OPTION_MAPPINGS.put("edgeOptions", "ms:edgeOptions");
-        BROWSER_OPTION_MAPPINGS.put("safariOptions", "safari:options");
-        BROWSER_OPTION_MAPPINGS.put("ieOptions", "se:ieOptions");
-    }
 
     /**
      * Process browser-specific options from config.
@@ -41,10 +28,7 @@ public class BrowserOptionsCapabilities {
         processBrowserOption(config, capabilities, "safariOptions", "safari:options");
 
         // Opera (no W3C namespace, same for both)
-        if (config.containsKey("operaOptions")) {
-            Object operaOptions = config.get("operaOptions");
-            capabilities.setCapability("operaOptions", operaOptions);
-        }
+        processBrowserOption(config, capabilities, "operaOptions", "operaOptions");
 
         // Internet Explorer
         processBrowserOption(config, capabilities, "ieOptions", "se:ieOptions", "IEOptions");

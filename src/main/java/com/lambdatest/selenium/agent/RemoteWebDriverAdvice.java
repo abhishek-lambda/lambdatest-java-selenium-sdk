@@ -34,7 +34,18 @@ public class RemoteWebDriverAdvice {
     
     // LambdaTest-specific keys that should ONLY be in lt:options, not at W3C top level
     // These keys cause W3C validation errors in Selenium 4 if set at top level
-    private static final Set<String> LT_SPECIFIC_KEYS = Set.of("build", "name", "projectName", "resolution");
+    private static final Set<String> LT_SPECIFIC_KEYS = Set.of(
+        "build", "name", "projectName", "resolution", 
+        "buildTags", "driver_version", "tags"
+    );
+    
+    // Selenium 3 capabilities that should be moved to lt:options when using Selenium 4
+    // These are legacy capabilities that Selenium 4 rejects at top level
+    private static final Set<String> SELENIUM3_LEGACY_KEYS = Set.of(
+        "version", "commandLog", "systemLog", "network.http2", 
+        "DisableXFHeaders", "network.debug", "ignoreFfOptionsArgs", 
+        "updateBuildStatusOnSuccess", "lambda:loadExtension"
+    );
 
     /**
      * Static method to enhance capabilities that can be called from ASM bytecode.
@@ -112,6 +123,20 @@ public class RemoteWebDriverAdvice {
                     continue;
                 }
                 
+                // Selenium 3 legacy capabilities should be moved to lt:options when using Selenium 4
+                // (Selenium 4 rejects these at top level)
+                if (SELENIUM3_LEGACY_KEYS.contains(key)) {
+                    // Skip empty string values (e.g., lambda:loadExtension: "")
+                    if (value instanceof String && ((String) value).trim().isEmpty()) {
+                        continue;
+                    }
+                    // Move to lt:options instead of top level
+                    if (!ltOptions.containsKey(key)) {
+                        ltOptions.put(key, value);
+                    }
+                    continue;
+                }
+                
                 // Add valid W3C capabilities to top level
                 if (!userCapMap.containsKey(key)) {
                     capabilities.setCapability(key, value);
@@ -127,8 +152,60 @@ public class RemoteWebDriverAdvice {
                     if (!ltOptions.containsKey(ltKey)) {
                         ltOptions.put(ltKey, ltValue);
                     }
+                    // Remove from top level by setting to null (safer than remove on potentially unmodifiable map)
+                    try {
+                        capabilities.setCapability(ltKey, (Object) null);
+                    } catch (Exception e) {
+                        // If setCapability with null doesn't work, try to remove from map
+                        try {
+                            if (capabilities.asMap() instanceof java.util.Map) {
+                                ((java.util.Map<String, Object>) capabilities.asMap()).remove(ltKey);
+                            }
+                        } catch (Exception e2) {
+                            // Ignore - capability might already be removed or map is unmodifiable
+                        }
+                    }
+                }
+            }
+            
+            // Clean up: Remove Selenium 3 legacy capabilities from top level (Selenium 4 rejects them)
+            // Move them to lt:options instead
+            for (String legacyKey : SELENIUM3_LEGACY_KEYS) {
+                if (capabilities.asMap().containsKey(legacyKey)) {
+                    Object legacyValue = capabilities.getCapability(legacyKey);
+                    // Skip empty string values
+                    if (legacyValue instanceof String && ((String) legacyValue).trim().isEmpty()) {
+                        // Just remove from top level, don't add to lt:options
+                        try {
+                            capabilities.setCapability(legacyKey, (Object) null);
+                        } catch (Exception e) {
+                            try {
+                                if (capabilities.asMap() instanceof java.util.Map) {
+                                    ((java.util.Map<String, Object>) capabilities.asMap()).remove(legacyKey);
+                                }
+                            } catch (Exception e2) {
+                                // Ignore
+                            }
+                        }
+                        continue;
+                    }
+                    // Ensure it's in lt:options
+                    if (!ltOptions.containsKey(legacyKey)) {
+                        ltOptions.put(legacyKey, legacyValue);
+                    }
                     // Remove from top level
-                    capabilities.asMap().remove(ltKey);
+                    try {
+                        capabilities.setCapability(legacyKey, (Object) null);
+                    } catch (Exception e) {
+                        // If setCapability with null doesn't work, try to remove from map
+                        try {
+                            if (capabilities.asMap() instanceof java.util.Map) {
+                                ((java.util.Map<String, Object>) capabilities.asMap()).remove(legacyKey);
+                            }
+                        } catch (Exception e2) {
+                            // Ignore - capability might already be removed or map is unmodifiable
+                        }
+                    }
                 }
             }
             
