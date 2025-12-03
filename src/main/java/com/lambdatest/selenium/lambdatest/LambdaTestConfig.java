@@ -10,6 +10,10 @@ import org.openqa.selenium.remote.DesiredCapabilities;
 import org.yaml.snakeyaml.Yaml;
 
 import com.lambdatest.selenium.tunnel.TunnelManager;
+import com.lambdatest.selenium.lambdatest.capabilities.CapabilityProcessor;
+import com.lambdatest.selenium.lambdatest.capabilities.Selenium3Capabilities;
+import com.lambdatest.selenium.lambdatest.capabilities.Selenium4Capabilities;
+import com.lambdatest.selenium.lambdatest.capabilities.BrowserOptionsCapabilities;
 
 /**
  * YAML configuration reader for LambdaTest Selenium SDK.
@@ -144,6 +148,7 @@ public class LambdaTestConfig {
         // Try multiple locations for lambdatest.yml
         String[] locations = {
             "lambdatest.yml",  // Root directory 
+            "lambdatest.yaml"
         };
         
         for (String location : locations) {
@@ -290,54 +295,147 @@ public class LambdaTestConfig {
     
     /**
      * Get capabilities from YAML configuration.
+     * Supports all Selenium 3, Selenium 4, and LambdaTest advanced capabilities.
+     * 
+     * Supported Browsers (Selenium 3 & 4):
+     * - Chrome
+     * - Firefox
+     * - Safari
+     * - MS Edge (Microsoft Edge)
+     * - Opera
+     * - IE (Internet Explorer)
+     * 
+     * Browser-specific options are supported for both Selenium 3 and 4:
+     * - Chrome: chromeOptions / goog:chromeOptions
+     * - Firefox: firefoxOptions / moz:firefoxOptions
+     * - Edge: edgeOptions / ms:edgeOptions
+     * - Safari: safariOptions / safari:options
+     * - Opera: operaOptions
+     * - IE: ieOptions / se:ieOptions
+     * 
+     * Selenium 3 capabilities are set directly on DesiredCapabilities for backwards compatibility.
+     * Selenium 4 capabilities use the W3C standard format with lt:options.
      */
     public DesiredCapabilities getCapabilitiesFromYaml() {
         DesiredCapabilities capabilities = new DesiredCapabilities();
-        
-        // LambdaTest options from YAML
         Map<String, Object> ltOptions = new HashMap<>();
+        CapabilityProcessor processor = new CapabilityProcessor(config, capabilities, ltOptions);
         
-        // Basic browser config
+        // ============================================================
+        // 1. W3C Standard Browser Capabilities (Selenium 3 & 4)
+        // ============================================================
+        processW3CBrowserCapabilities(capabilities);
+        
+        // ============================================================
+        // 2. Browser-Specific Options (Chrome, Firefox, Edge, etc.)
+        // ============================================================
+        BrowserOptionsCapabilities.processBrowserOptions(config, capabilities);
+        
+        // ============================================================
+        // 3. LambdaTest Credentials (Required)
+        // ============================================================
+        processCredentials(ltOptions);
+        
+        // ============================================================
+        // 4. Selenium 3 Capabilities (for backwards compatibility)
+        // ============================================================
+        processor.process(Selenium3Capabilities.getDefinitions());
+        
+        // Handle special case: version -> browserVersion mapping
+        processVersionCapability(capabilities);
+        
+        // ============================================================
+        // 5. Selenium 4 / W3C Capabilities (LambdaTest advanced)
+        // ============================================================
+        processor.process(Selenium4Capabilities.getDefinitions());
+        
+        // ============================================================
+        // 6. Special Cases (require custom handling)
+        // ============================================================
+        processSpecialCases(capabilities, ltOptions);
+        
+        // ============================================================
+        // 7. Finalize: Set lt:options on capabilities
+        // ============================================================
+        capabilities.setCapability("lt:options", ltOptions);
+        
+        return capabilities;
+    }
+    
+    /**
+     * Process W3C standard browser capabilities (browserName, browserVersion, platformName).
+     */
+    private void processW3CBrowserCapabilities(DesiredCapabilities capabilities) {
+        // browserName (case-sensitive, mandatory)
         if (config.containsKey("browserName")) {
             capabilities.setCapability("browserName", config.get("browserName"));
-        }
-        if (config.containsKey("browserVersion")) {
-            capabilities.setCapability("browserVersion", config.get("browserVersion"));
-        }
-        if (config.containsKey("platformName")) {
-            capabilities.setCapability("platformName", config.get("platformName"));
+        } else if (config.containsKey("browser")) {
+            capabilities.setCapability("browserName", config.get("browser"));
         }
         
-        // LambdaTest credentials (required) - put only in lt:options for W3C compliance
+        // browserVersion
+        if (config.containsKey("browserVersion")) {
+            capabilities.setCapability("browserVersion", config.get("browserVersion"));
+        } else if (config.containsKey("version")) {
+            capabilities.setCapability("browserVersion", config.get("version"));
+        }
+        
+        // platformName
+        if (config.containsKey("platformName")) {
+            capabilities.setCapability("platformName", config.get("platformName"));
+        } else if (config.containsKey("platform")) {
+            capabilities.setCapability("platformName", config.get("platform"));
+        } else if (config.containsKey("OS")) {
+            capabilities.setCapability("platformName", config.get("OS"));
+        }
+    }
+    
+    /**
+     * Process LambdaTest credentials.
+     */
+    private void processCredentials(Map<String, Object> ltOptions) {
         try {
             String username = getUsername();
             String accessKey = getAccessKey();
             ltOptions.put("user", username);
             ltOptions.put("accessKey", accessKey);
         } catch (Exception e) {
+            // Credentials will be required when creating WebDriver
+            throw new RuntimeException("LambdaTest credentials not found. Please set LT_USERNAME and LT_ACCESS_KEY environment variables or add 'username' and 'accesskey' to lambdatest.yml");
+        }
+    }
+    
+    /**
+     * Handle version capability special case (Selenium 3 compatibility).
+     * version should be set on DesiredCapabilities AND as browserVersion for W3C.
+     */
+    private void processVersionCapability(DesiredCapabilities capabilities) {
+        if (config.containsKey("version") && !config.containsKey("browserVersion")) {
+            Object versionValue = config.get("version");
+            capabilities.setCapability("version", versionValue); // Selenium 3
+            capabilities.setCapability("browserVersion", versionValue); // W3C
+        }
+    }
+    
+    /**
+     * Process special cases that require custom logic.
+     */
+    private void processSpecialCases(DesiredCapabilities capabilities, Map<String, Object> ltOptions) {
+        // lambda:userFiles - set directly on capabilities (not in lt:options)
+        if (config.containsKey("lambda:userFiles")) {
+            capabilities.setCapability("lambda:userFiles", config.get("lambda:userFiles"));
+        } else if (config.containsKey("userFiles")) {
+            capabilities.setCapability("lambda:userFiles", config.get("userFiles"));
         }
         
-        // LambdaTest specific options
-        if (config.containsKey("build")) ltOptions.put("build", config.get("build"));
-        if (config.containsKey("project")) ltOptions.put("project", config.get("project"));
-        if (config.containsKey("name")) ltOptions.put("name", config.get("name"));
-        if (config.containsKey("video")) ltOptions.put("video", config.get("video"));
-        if (config.containsKey("network")) ltOptions.put("network", config.get("network"));
-        if (config.containsKey("console")) ltOptions.put("console", config.get("console"));
-        if (config.containsKey("visual")) ltOptions.put("visual", config.get("visual"));
-        if (config.containsKey("resolution")) ltOptions.put("resolution", config.get("resolution"));
-        if (config.containsKey("tunnel")) {
-            Object tunnelValue = config.get("tunnel");
-            ltOptions.put("tunnel", tunnelValue);
-            
-            // Note: Tunnel will be started when WebDriver is actually created
-            // This prevents starting it too early before tests run
+        // project -> projectName mapping for Selenium 3, and project -> lt:options for Selenium 4
+        if (config.containsKey("project")) {
+            Object projectValue = config.get("project");
+            ltOptions.put("project", projectValue); // Selenium 4
+            if (!config.containsKey("projectName")) {
+                capabilities.setCapability("projectName", projectValue); // Selenium 3
+            }
         }
-        
-        capabilities.setCapability("lt:options", ltOptions);
-        
-        
-        return capabilities;
     }
     
     /**
