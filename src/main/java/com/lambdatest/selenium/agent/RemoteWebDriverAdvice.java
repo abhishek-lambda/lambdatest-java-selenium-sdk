@@ -90,8 +90,12 @@ public class RemoteWebDriverAdvice {
                 
             // Ensure lt:options exists
             Map<String, Object> ltOptions;
-            if (userCapMap.containsKey("lt:options")) {
-                ltOptions = (Map<String, Object>) userCapMap.get("lt:options");
+            String ltOptionsKey = userCapMap.keySet().stream()
+                .filter(k -> k.equalsIgnoreCase("lt:options"))
+                .findFirst()
+                .orElse(null);
+            if (ltOptionsKey != null) {
+                ltOptions = (Map<String, Object>) userCapMap.get(ltOptionsKey);
             } else {
                 ltOptions = new java.util.HashMap<>();
                 capabilities.setCapability("lt:options", ltOptions);
