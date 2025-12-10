@@ -26,9 +26,6 @@ public class RemoteWebDriverAdvice {
     // ThreadLocal re-entrance guard to prevent multiple enhancement calls in the same thread
     private static final ThreadLocal<Boolean> isEnhancing = ThreadLocal.withInitial(() -> false);
     
-    // Flag to warn only once about missing tunnel (avoid spam in parallel execution)
-    private static volatile boolean warnedAboutMissingTunnel = false;
-    
     // Session-thread manager for validating thread affinity
     private static final SessionThreadManager sessionThreadManager = SessionThreadManager.getInstance();
     
@@ -228,26 +225,64 @@ public class RemoteWebDriverAdvice {
                 }
                     
                 if (tunnelInCapabilities) {
-                    // Tunnel is enabled - check if it's running and add tunnel name
+                    // Tunnel is enabled - ensure it's running and wait for it to be ready
                     try {
                         com.lambdatest.selenium.tunnel.TunnelManager tunnelManager = 
                             com.lambdatest.selenium.tunnel.TunnelManager.getInstance();
                         
-                        if (tunnelManager.isTunnelRunning()) {
-                            String tunnelName = tunnelManager.getTunnelName();
-                            if (tunnelName != null && !tunnelName.trim().isEmpty()) {
-                                ltOptions.put("tunnelName", tunnelName);
-                            }
-                        } else {
-                            // Tunnel configured but not running - warn once
-                            if (!warnedAboutMissingTunnel) {
-                                warnedAboutMissingTunnel = true;
-                                System.err.println("[LambdaTest SDK] WARNING: tunnel=true in YAML but no tunnel is running.");
-                                System.err.println("[LambdaTest SDK] Tests will continue without tunnel. This may cause connection issues for local resources.");
+                        // Synchronize to ensure only one thread starts the tunnel
+                        synchronized (RemoteWebDriverAdvice.class) {
+                            if (!tunnelManager.isTunnelRunning()) {
+                                // Tunnel is not running - start it automatically
+                                System.out.println("[LambdaTest SDK] Tunnel is enabled but not running. Starting tunnel automatically...");
+                                
+                                try {
+                                    // Reuse config variable from outer scope
+                                    String username = config.getUsername();
+                                    String accessKey = config.getAccessKey();
+                                    
+                                    // Get tunnel name from config if available
+                                    String tunnelName = null;
+                                    if (ltOptions.containsKey("tunnelName")) {
+                                        Object tunnelNameObj = ltOptions.get("tunnelName");
+                                        if (tunnelNameObj != null) {
+                                            tunnelName = tunnelNameObj.toString();
+                                        }
+                                    }
+                                    
+                                    // Start tunnel and wait for it to be ready
+                                    // startTunnel() internally waits up to 90 seconds for tunnel to be ready
+                                    tunnelManager.startTunnel(username, accessKey, tunnelName);
+                                    
+                                    System.out.println("[LambdaTest SDK] Tunnel started successfully and ready for use.");
+                                } catch (com.lambdatest.selenium.tunnel.TunnelManager.TunnelException e) {
+                                    System.err.println("[LambdaTest SDK] ERROR: Failed to start tunnel: " + e.getMessage());
+                                    System.err.println("[LambdaTest SDK] Tests will fail without tunnel. Please start tunnel manually or fix configuration.");
+                                    throw new RuntimeException("Tunnel startup failed: " + e.getMessage(), e);
+                                } catch (Exception e) {
+                                    System.err.println("[LambdaTest SDK] ERROR: Unexpected error starting tunnel: " + e.getMessage());
+                                    e.printStackTrace();
+                                    throw new RuntimeException("Tunnel startup failed: " + e.getMessage(), e);
+                                }
                             }
                         }
+                        
+                        // Verify tunnel is running (should be true if startTunnel() returned successfully,
+                        // or if another thread already started it)
+                        if (!tunnelManager.isTunnelRunning()) {
+                            throw new RuntimeException("Tunnel is not running. This should not happen if startTunnel() completed successfully.");
+                        }
+                        
+                        // Add tunnel name to capabilities
+                        String tunnelName = tunnelManager.getTunnelName();
+                        if (tunnelName != null && !tunnelName.trim().isEmpty()) {
+                            ltOptions.put("tunnelName", tunnelName);
+                        }
+                        
                     } catch (Exception e) {
-                        System.err.println("[LambdaTest SDK] Warning: Error checking tunnel status: " + e.getMessage());
+                        System.err.println("[LambdaTest SDK] ERROR: Tunnel handling failed: " + e.getMessage());
+                        e.printStackTrace();
+                        throw new RuntimeException("Tunnel setup failed: " + e.getMessage(), e);
                     }
                 }
             }
