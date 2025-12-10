@@ -210,9 +210,7 @@ public class RemoteWebDriverAdvice {
                 }
             }
             
-            // Ensure lt:options is updated in capabilities
-            capabilities.setCapability("lt:options", ltOptions);
-            
+            // Handle tunnel BEFORE setting lt:options to ensure tunnel name is included
             // Check if tunnel is enabled in capabilities
             if (ltOptions.containsKey("tunnel")) {
                 Object tunnelValue = ltOptions.get("tunnel");
@@ -286,6 +284,10 @@ public class RemoteWebDriverAdvice {
                     }
                 }
             }
+            
+            // Ensure lt:options is updated in capabilities AFTER tunnel handling
+            // This ensures tunnel name is included in the final capabilities
+            capabilities.setCapability("lt:options", ltOptions);
             
         } catch (Exception e) {
             System.err.println("[LambdaTest SDK RemoteWebDriverAdvice] Error enhancing capabilities: " + e.getMessage());
