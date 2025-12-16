@@ -11,12 +11,6 @@ import org.openqa.selenium.remote.RemoteWebDriver;
 
 import com.lambdatest.selenium.lambdatest.SessionThreadManager;
 
-import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.DynamicType;
-import net.bytebuddy.matcher.ElementMatchers;
-import net.bytebuddy.utility.JavaModule;
-
 /**
  * LambdaTest Java Agent for runtime instrumentation.
  * 
@@ -323,7 +317,7 @@ public class LambdaTestAgent {
         System.setProperty("net.bytebuddy.experimental", "true");
         
         LOGGER.info("╔════════════════════════════════════════════════════════════╗");
-        LOGGER.info(    "║   LambdaTest Selenium SDK Agent v" + AGENT_VERSION + "     ║");
+        LOGGER.info("║   LambdaTest Selenium SDK Agent v"+AGENT_VERSION+"         ║");
         LOGGER.info("║   Runtime instrumentation enabled - No code changes!       ║");
         LOGGER.info("╚════════════════════════════════════════════════════════════╝");
         
@@ -338,7 +332,7 @@ public class LambdaTestAgent {
      */
     public static void agentmain(String agentArgs, Instrumentation inst) {
         LOGGER.info("╔════════════════════════════════════════════════════════════╗");
-        LOGGER.info("    ║   LambdaTest Selenium SDK Agent v" + AGENT_VERSION + "     ║");
+        LOGGER.info("║   LambdaTest Selenium SDK Agent v"+AGENT_VERSION+"         ║");
         LOGGER.info("║   Runtime instrumentation enabled - No code changes!       ║");
         LOGGER.info("╚════════════════════════════════════════════════════════════╝");
         initialize(agentArgs, inst);
@@ -364,70 +358,14 @@ public class LambdaTestAgent {
             // Parse agent arguments if provided
             AgentConfig config = parseArguments(agentArgs);
             
-            // Create agent builder with appropriate matchers
-            AgentBuilder agentBuilder = new AgentBuilder.Default()
-                .disableClassFormatChanges()
-                .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
-                .with(AgentBuilder.InitializationStrategy.NoOp.INSTANCE)
-                .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
-                // Ignore classes that shouldn't be instrumented
-                .ignore(ElementMatchers.nameStartsWith("com.google.inject"))
-                .ignore(ElementMatchers.nameStartsWith("com.google.common"))
-                .ignore(ElementMatchers.nameStartsWith("org.testng.internal"))
-                .ignore(ElementMatchers.nameStartsWith("org.testng.SuiteRunner"))
-                .ignore(ElementMatchers.nameStartsWith("org.testng.ITestContext"))
-                .ignore(ElementMatchers.nameStartsWith("net.bytebuddy"))
-                .ignore(ElementMatchers.nameStartsWith("sun."))
-                .ignore(ElementMatchers.nameStartsWith("jdk.internal"))
-                .ignore(ElementMatchers.nameContains("$Proxy"))
-                .ignore(ElementMatchers.nameContains("$$"))
-                .with(new AgentBuilder.Listener.Adapter() {
-                    @Override
-                    public void onTransformation(TypeDescription typeDescription, 
-                                                ClassLoader classLoader,
-                                                JavaModule module,
-                                                boolean loaded,
-                                                DynamicType dynamicType) {
-                        LOGGER.fine("Transformed: " + typeDescription.getName());
-                    }
-                    
-                    @Override
-                    public void onError(String typeName, 
-                                       ClassLoader classLoader,
-                                       JavaModule module,
-                                       boolean loaded,
-                                       Throwable throwable) {
-                        // Suppress common ignorable errors (dependency resolution failures, etc.)
-                        String errorMsg = throwable.getMessage();
-                        if (errorMsg != null && (
-                            errorMsg.contains("Cannot resolve type description") ||
-                            errorMsg.contains("Field values caching was disabled") ||
-                            errorMsg.contains("Cannot call super") ||
-                            errorMsg.contains("allows for delegation") ||
-                            errorMsg.contains("com.google.inject") ||
-                            typeName.contains("$$") ||
-                            typeName.startsWith("org.testng.internal") ||
-                            typeName.startsWith("com.google.")
-                        )) {
-                            // Log at FINE level for expected/ignorable errors
-                            LOGGER.fine("Skipped transformation of " + typeName + ": " + errorMsg);
-                        } else {
-                            // Log genuine errors at WARNING level
-                            LOGGER.log(Level.WARNING, 
-                                "Error transforming " + typeName + ": " + errorMsg, 
-                                throwable);
-                        }
-                    }
-                });
-            
             // Install WebDriver constructor interceptors
-            installWebDriverInterceptors(agentBuilder, inst, config);
+            installWebDriverInterceptors(inst, config);
             
             // Install test framework method interceptors
-            installTestFrameworkMethodInterceptors(agentBuilder, inst, config);
+            installTestFrameworkMethodInterceptors(inst, config);
             
             // Install test framework interceptors
-            installTestFrameworkInterceptors(agentBuilder, inst, config);
+            installTestFrameworkInterceptors(inst, config);
             
             // Register TestNG listener automatically
             registerTestNGListener();
@@ -468,12 +406,10 @@ public class LambdaTestAgent {
     /**
      * Install WebDriver constructor interceptors to redirect to LambdaTest.
      * 
-     * @param builder Agent builder
      * @param inst Instrumentation instance
      * @param config Agent configuration
      */
-    private static void installWebDriverInterceptors(AgentBuilder builder,
-                                                     Instrumentation inst,
+    private static void installWebDriverInterceptors(Instrumentation inst,
                                                      AgentConfig config) {
         LOGGER.info("Installing WebDriver interceptors...");
         
@@ -492,15 +428,11 @@ public class LambdaTestAgent {
                     accessKey = ltConfig.getAccessKey();
                 }
             } catch (Exception e) {
-                // Ignore - credentials may not be needed for all scenarios
+                LOGGER.log(Level.SEVERE, "Failed to load LambdaTest credentials from lambdatest.yml: " + e.getMessage(), e);
+                throw new RuntimeException("Failed to initialize LambdaTest SDK: Missing credentials", e);
             }
         }
         
-        if (username != null && accessKey != null) {
-            LOGGER.info("LambdaTest credentials loaded");
-        } else {
-            LOGGER.info("No LambdaTest credentials found (tests will use capabilities from code/YAML)");
-        }
         
         // Install ASM-based transformer for RemoteWebDriver constructor interception
         // This handles capability enhancement and driver registration
@@ -529,12 +461,10 @@ public class LambdaTestAgent {
      * Install test framework method interceptors for capability enhancement and driver cleanup.
      * Supports both TestNG and JUnit frameworks.
      * 
-     * @param builder Agent builder
      * @param inst Instrumentation instance
      * @param config Agent configuration
      */
-    private static void installTestFrameworkMethodInterceptors(AgentBuilder builder,
-                                                               Instrumentation inst,
+    private static void installTestFrameworkMethodInterceptors(Instrumentation inst,
                                                                AgentConfig config) {
         LOGGER.info("Installing TestNG and JUnit method interceptors...");
         
@@ -547,12 +477,10 @@ public class LambdaTestAgent {
     /**
      * Install test framework interceptors for automatic lifecycle management.
      * 
-     * @param builder Agent builder
      * @param inst Instrumentation instance
      * @param config Agent configuration
      */
-    private static void installTestFrameworkInterceptors(AgentBuilder builder,
-                                                         Instrumentation inst,
+    private static void installTestFrameworkInterceptors(Instrumentation inst,
                                                          AgentConfig config) {
         LOGGER.info("Installing test framework interceptors...");
         
